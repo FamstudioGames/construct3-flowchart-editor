@@ -490,21 +490,30 @@
                 const mouseX = e.clientX - rect.left;
                 const mouseY = e.clientY - rect.top;
 
+                console.log(`[MouseDown] Screen: ${mouseX}, ${mouseY}`);
+
                 if (this.editMode) {
                     // Check if clicking on a node
                     const clickedNode = this.getNodeAtPosition(mouseX, mouseY);
+                    
                     if (clickedNode) {
+                        console.log(`[MouseDown] Clicked Node ID: ${clickedNode.sid}`);
+                        
                         // Check if clicking on output
-                        const output = this.getOutputAtPosition(clickedNode, mouseX, mouseY);
-                        if (output) {
-                            this.connectionStart = { node: clickedNode, output: output };
+                        const outputData = this.getOutputAtPosition(clickedNode, mouseX, mouseY);
+                        
+                        if (outputData) {
+                            console.log(`[MouseDown] Output selected: ${outputData.output.name}`);
+                            this.connectionStart = { node: clickedNode, output: outputData.output };
                         } else {
+                            console.log(`[MouseDown] Dragging node started`);
                             this.selectNode(clickedNode);
                             this.draggedNode = clickedNode;
                         }
                         this.render();
                         return;
                     } else {
+                        console.log(`[MouseDown] Clicked empty space (Deselect)`);
                         this.deselectAll();
                     }
                 }
@@ -546,16 +555,19 @@
                     // Обновляем hoveredNode для подсветки цели
                     this.hoveredNode = this.getNodeAtPosition(mouseX, mouseY);
                     
-                    // Если не нашли точно под курсором, ищем ближайшую
+                    // Если не нашли точно под курсором, ищем ближайшую (магнитизм)
                     if (!this.hoveredNode) {
                         this.hoveredNode = this.getClosestNodeNearPosition(mouseX, mouseY, 50);
                     }
                     
-                    // Проверяем, что это не та же самая нода
+                    // Проверяем, что это не та же самая нода (нельзя соединить с самим собой)
                     if (this.hoveredNode === this.connectionStart.node) {
                         this.hoveredNode = null;
                     }
                     
+                    // Временный дебаг (раскомментируйте, если нужно видеть каждый кадр, но будет спамить)
+                    // if(this.hoveredNode) console.log(`[MouseMove] Hovering target: ${this.hoveredNode.sid}`);
+
                     this.render();
                     
                     // Рисуем пунктирную линию
@@ -647,22 +659,37 @@
                 return false;
             }
 
-           handleMouseUp(e) {
+             handleMouseUp(e) {
                 const rect = this.canvas.getBoundingClientRect();
                 const mouseX = e.clientX - rect.left;
                 const mouseY = e.clientY - rect.top;
 
                 // Если мы тащили связь
                 if (this.connectionStart) {
-                    // ИСПРАВЛЕНИЕ: Вместо того чтобы заново искать ноду по строгим координатам (getNodeAtPositionFromWorld),
-                    // мы используем this.hoveredNode. Эта переменная обновляется в handleMouseMove и уже содержит 
-                    // правильную целевую ноду с учетом дистанции "примагничивания" (snapping).
-                    const targetNode = this.hoveredNode;
+                    console.log(`[MouseUp] Finishing connection...`);
+                    
+                    // 1. Сначала пробуем взять ноду, которую мы подсвечивали (hoveredNode)
+                    let targetNode = this.hoveredNode;
+
+                    // 2. Если hoveredNode пуст (например, мышь дернулась слишком быстро),
+                    // пробуем найти ближайшую ноду принудительно
+                    if (!targetNode) {
+                        console.log(`[MouseUp] No hoveredNode found, forcing search near ${mouseX}, ${mouseY}`);
+                        targetNode = this.getClosestNodeNearPosition(mouseX, mouseY, 50);
+                    }
+
+                    if (targetNode) {
+                         console.log(`[MouseUp] Target Candidate: ${targetNode.sid} (Source: ${this.connectionStart.node.sid})`);
+                    } else {
+                         console.log(`[MouseUp] No target node found within range.`);
+                    }
                     
                     // Если нашли ноду (targetNode) и это не та же самая нода
                     if (targetNode && targetNode !== this.connectionStart.node) {
                         const sourceNode = this.connectionStart.node;
                         const output = this.connectionStart.output;
+
+                        console.log(`[MouseUp] Connecting! ${sourceNode.sid} -> ${targetNode.sid}`);
 
                         // 1. Присваиваем выходу ID целевой ноды
                         output.cnSID = targetNode.sid;
@@ -679,6 +706,8 @@
                         if (!targetNode.poSIDs.includes(output.sid)) {
                             targetNode.poSIDs.push(output.sid);
                         }
+                    } else {
+                        console.log(`[MouseUp] Connection aborted (Target invalid or self-connect)`);
                     }
                     
                     // Сброс состояния
@@ -1299,7 +1328,53 @@
                 this.render();
             }
 
+            // --- НОВЫЙ МЕТОД: Полная пересборка структуры перед сохранением ---
+            rebuildConnectivity() {
+                // 1. Очистка служебных массивов у всех нод
+                this.flowchartData.nodes.forEach(node => {
+                    node.pnSIDs = [];   // Parent Node SIDs (Входящие ноды)
+                    node.poSIDs = [];   // Parent Output SIDs (Входящие выходы)
+                    node.nodeSIDs = []; // Child Node SIDs (Исходящие ноды)
+                    
+                    // Округление координат (Construct любит целые числа)
+                    node.x = Math.round(node.x);
+                    node.y = Math.round(node.y);
+                });
+
+                // 2. Генерация связей на основе outputs (Источник правды)
+                this.flowchartData.nodes.forEach(sourceNode => {
+                    if (!sourceNode.outputs) return;
+
+                    sourceNode.outputs.forEach(output => {
+                        // Если у выхода есть подключение
+                        if (output.cnSID) {
+                            // Ищем целевую ноду
+                            const targetNode = this.flowchartData.nodes.find(n => n.sid === output.cnSID);
+                            
+                            if (targetNode) {
+                                // A. Записываем ребенка в родителя (Source -> Target)
+                                // Проверяем дубликаты, хотя C3 иногда допускает их, лучше избегать
+                                if (!sourceNode.nodeSIDs.includes(targetNode.sid)) {
+                                    sourceNode.nodeSIDs.push(targetNode.sid);
+                                }
+
+                                // B. Записываем родителя и выход в ребенка (Target <- Source)
+                                // ВАЖНО: Массивы pnSIDs и poSIDs должны быть синхронны по индексам!
+                                targetNode.pnSIDs.push(sourceNode.sid);
+                                targetNode.poSIDs.push(output.sid);
+                            } else {
+                                // Если целевая нода не найдена (была удалена?), разрываем связь
+                                output.cnSID = null;
+                            }
+                        }
+                    });
+                });
+            }
+
             saveFlowchart() {
+                // ПЕРЕД СОХРАНЕНИЕМ ЧИНИМ СТРУКТУРУ
+                this.rebuildConnectivity();
+
                 // Update the loaded files
                 app.jsonData = this.flowchartData;
                 app.uistateData = this.uiStateData;
@@ -1308,7 +1383,10 @@
                 this.exitEditMode(true);
             }
 
-            saveFlowchartAs() {
+             saveFlowchartAs() {
+                // ПЕРЕД СОХРАНЕНИЕМ ЧИНИМ СТРУКТУРУ
+                this.rebuildConnectivity();
+
                 const jsonStr = JSON.stringify(this.flowchartData, null, '\t');
                 const uistateStr = JSON.stringify(this.uiStateData, null, '\t');
 
