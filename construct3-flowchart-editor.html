@@ -1,0 +1,1486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Construct 3 Flowchart Editor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+            background: #2b2b2b;
+            color: #e0e0e0;
+            overflow: hidden;
+        }
+
+        /* --- MENU BAR --- */
+        #menu-bar {
+            background: #3c3c3c;
+            display: flex;
+            font-size: 13px;
+            border-bottom: 1px solid #1e1e1e;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            height: 30px;
+            align-items: center;
+            user-select: none;
+        }
+
+        .menu-item {
+            padding: 0 15px;
+            cursor: pointer;
+            position: relative;
+            height: 100%;
+            display: flex;
+            align-items: center;
+        }
+
+        .menu-item:hover { background: #505050; }
+        .menu-item.active { background: #0078d4 !important; }
+
+        .dropdown {
+            display: none;
+            position: absolute;
+            top: 30px;
+            left: 0;
+            background: #2d2d2d;
+            border: 1px solid #454545;
+            min-width: 200px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            z-index: 1001;
+        }
+
+        .dropdown-item { 
+            padding: 8px 20px;
+            cursor: pointer; 
+            color: #e0e0e0; 
+        }
+
+        .dropdown-item:hover:not(.disabled) { background: #0078d4; }
+        .dropdown-item.disabled { 
+            cursor: default; 
+            opacity: 0.5;
+        }
+
+        .separator {
+            height: 1px; 
+            background: #454545; 
+            margin: 4px 0;
+        }
+
+        /* --- TOOLBAR --- */
+        .toolbar {
+            display: none;
+            gap: 5px;
+            padding: 10px;
+            background: #1e1e1e;
+            border-bottom: 1px solid #3a3a3a;
+            flex-wrap: wrap;
+            position: fixed;
+            top: 30px;
+            left: 0;
+            right: 350px;
+            z-index: 50;
+        }
+
+        .toolbar.active {
+            display: flex;
+        }
+
+        .toolbar-group {
+            display: flex;
+            gap: 5px;
+            padding-right: 10px;
+            border-right: 1px solid #555;
+        }
+
+        .toolbar-group:last-child {
+            border-right: none;
+        }
+
+        button {
+            padding: 10px 20px;
+            background: #0078d4;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+
+        button.small-btn {
+            padding: 4px 8px;
+            font-size: 11px;
+        }
+
+        button:hover:not(:disabled) {
+            background: #106ebe;
+        }
+
+        button:disabled {
+            background: #555;
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+
+        /* --- CANVAS --- */
+        #canvas-container {
+            position: fixed;
+            top: 30px;
+            left: 0;
+            right: 0; /* Default right, changed in JS for edit mode */
+            bottom: 0;
+            overflow: hidden;
+            transition: right 0.2s;
+        }
+
+        canvas {
+            cursor: grab;
+            background: #2b2b2b;
+        }
+
+        canvas:active {
+            cursor: grabbing;
+        }
+
+        canvas.editing {
+            cursor: default;
+        }
+
+        /* --- PROPERTIES PANEL --- */
+        #properties-panel {
+            position: fixed;
+            top: 30px;
+            right: 0;
+            width: 350px;
+            bottom: 0;
+            background: #1e1e1e;
+            border-left: 1px solid #3a3a3a;
+            overflow-y: auto;
+            padding: 15px;
+            display: none;
+            z-index: 40;
+        }
+
+        #properties-panel.active {
+            display: block;
+        }
+
+        .property-group {
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #3a3a3a;
+        }
+
+        .property-group h3 {
+            margin-bottom: 10px;
+            color: #0078d4;
+            font-size: 14px;
+        }
+
+        .property-row {
+            margin-bottom: 10px;
+        }
+
+        .property-row label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 12px;
+            color: #888;
+        }
+
+        .property-row input[type="text"],
+        .property-row input[type="number"],
+        .property-row textarea,
+        .property-row select {
+            width: 100%;
+            padding: 8px;
+            background: #333;
+            border: 1px solid #555;
+            border-radius: 4px;
+            color: #e0e0e0;
+            font-family: inherit;
+        }
+
+        .property-row input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .property-row input[type="color"] {
+            width: 100%;
+            height: 40px;
+            cursor: pointer;
+            border: 1px solid #555;
+            border-radius: 4px;
+        }
+
+        /* --- OUTPUT ITEMS --- */
+        .output-item {
+            background: #2a2a2a;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            border-left: 3px solid #0078d4;
+        }
+
+        .output-item.default {
+            border-left-color: #4caf50;
+        }
+
+        .output-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .output-item-controls {
+            display: flex;
+            gap: 5px;
+        }
+
+        /* --- CONTEXT MENU --- */
+        .context-menu {
+            position: fixed;
+            background: #2a2a2a;
+            border: 1px solid #555;
+            border-radius: 4px;
+            padding: 5px 0;
+            z-index: 2000;
+            display: none;
+            min-width: 180px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        }
+
+        .context-menu.active {
+            display: block;
+        }
+
+        .context-menu-item {
+            padding: 8px 15px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: background 0.2s;
+        }
+
+        .context-menu-item:hover {
+            background: #3a3a3a;
+        }
+
+        .context-menu-item.separator {
+            border-top: 1px solid #555;
+            margin: 5px 0;
+            padding: 0;
+            cursor: default;
+        }
+
+        /* --- MISC --- */
+        .selection-rect {
+            stroke: #0078d4;
+            stroke-width: 2;
+            stroke-dasharray: 5, 5;
+            fill: rgba(0, 120, 212, 0.1);
+        }
+
+        #mode-indicator {
+            position: fixed;
+            top: 40px;
+            left: 10px;
+            background: rgba(30, 30, 30, 0.9);
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            z-index: 50;
+            font-weight: bold;
+        }
+
+        #mode-indicator.view-mode { color: #4caf50; }
+        #mode-indicator.edit-mode { color: #ff9800; }
+
+        .zoom-info {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(30, 30, 30, 0.9);
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            z-index: 50;
+        }
+    </style>
+</head>
+<body>
+    <!-- MENU BAR -->
+    <div id="menu-bar">
+        <!-- File Menu -->
+        <div class="menu-item" id="fileMenuBtn">
+            File
+            <div class="dropdown" id="fileDropdown">
+                <div id="importTrigger" class="dropdown-item">Import (*.json, *.uistate.json)</div>
+                <div class="separator"></div>
+                <div id="menuSaveBtn" class="dropdown-item disabled">Save</div>
+                <div id="menuSaveAsBtn" class="dropdown-item disabled">Save As...</div>
+            </div>
+        </div>
+
+        <!-- Edit Menu -->
+        <div class="menu-item" id="editMenuBtn" style="opacity: 0.5; pointer-events: none;">
+            Edit
+            <div class="dropdown" id="editDropdown">
+                <div id="toggleEditModeBtn" class="dropdown-item">Enter Edit Mode</div>
+                <div id="menuCancelEditBtn" class="dropdown-item" style="color: #ff5555; display: none;">Cancel Editing</div>
+            </div>
+        </div>
+
+        <!-- View Menu -->
+        <div class="menu-item" id="viewMenuBtn">
+            View
+            <div class="dropdown" id="viewDropdown">
+                <div id="menuResetViewBtn" class="dropdown-item">Reset View</div>
+            </div>
+        </div>
+
+        <!-- Status Info -->
+        <div id="status" style="margin-left: 20px; font-size: 11px; color: #aaa;">No flowchart imported</div>
+        <div id="current-filename" style="margin-left: auto; padding-right: 15px; color: #0078d4; font-size: 11px; font-weight: bold;"></div>
+    </div>
+
+    <!-- TOOLBAR (Edit Mode Only) -->
+    <div class="toolbar" id="toolbar">
+        <div class="toolbar-group">
+            <button class="small-btn" id="addNodeBtn">Add Node</button>
+            <button class="small-btn" id="deleteNodeBtn" disabled>Delete Node</button>
+        </div>
+        <div class="toolbar-group">
+            <button class="small-btn" id="addOutputBtn" disabled>Add Output</button>
+            <button class="small-btn" id="deleteOutputBtn" disabled>Delete Output</button>
+        </div>
+        <div class="toolbar-group">
+            <button class="small-btn" id="enableNodeBtn" disabled>Enable/Disable</button>
+            <button class="small-btn" id="setStartBtn" disabled>Set as Start</button>
+        </div>
+    </div>
+
+    <!-- Hidden File Input -->
+    <input type="file" id="jsonFiles" accept=".json" multiple style="display: none;">
+
+    <div id="mode-indicator" class="view-mode">VIEW MODE</div>
+
+    <div id="canvas-container">
+        <canvas id="canvas"></canvas>
+    </div>
+
+    <div id="properties-panel">
+        <div class="property-group">
+            <h3>No Selection</h3>
+            <p style="color: #888; font-size: 13px;">Select a node or output to edit properties</p>
+        </div>
+    </div>
+
+    <div class="zoom-info">
+        <div>Zoom: <span id="zoomLevel">100%</span></div>
+        <div>Pan: Drag | Zoom: Ctrl+Scroll</div>
+        <div id="editHint" style="display: none; margin-top: 5px; color: #ff9800;">
+            Right-click for options
+        </div>
+    </div>
+
+    <div id="contextMenu" class="context-menu"></div>
+
+    <script>
+        class FlowchartEditor {
+            constructor(canvasId) {
+                this.canvas = document.getElementById(canvasId);
+                if (!this.canvas) {
+                    console.error(`Canvas element with id "${canvasId}" not found!`);
+                    return;
+                }
+                this.ctx = this.canvas.getContext('2d');
+                this.flowchartData = null;
+                this.uiStateData = null;
+                this.originalData = null;
+                
+                this.zoom = 1;
+                this.panX = 0;
+                this.panY = 0;
+                this.isDragging = false;
+                this.lastMouseX = 0;
+                this.lastMouseY = 0;
+
+                this.editMode = false;
+                this.selectedNode = null;
+                this.selectedOutput = null;
+                this.selectedOutputIndex = -1;
+                this.draggedNode = null;
+                this.connectionStart = null;
+                this.hoveredNode = null;
+                this.hoveredOutput = null;
+                this.selectionRect = null;
+
+                this.setupCanvas();
+                this.setupEventListeners();
+            }
+
+            setupCanvas() {
+                const container = this.canvas.parentElement;
+                if (!container) return;
+                this.canvas.width = container.clientWidth;
+                this.canvas.height = container.clientHeight;
+            }
+
+            setupEventListeners() {
+                window.addEventListener('resize', () => {
+                    this.setupCanvas();
+                    this.render();
+                });
+                
+                this.canvas.addEventListener('mousedown', (e) => this.handleMouseDown(e));
+                this.canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
+                this.canvas.addEventListener('mouseup', (e) => this.handleMouseUp(e));
+                this.canvas.addEventListener('mouseleave', () => {
+                    this.isDragging = false;
+                    this.draggedNode = null;
+                });
+
+                this.canvas.addEventListener('wheel', (e) => {
+                    if (e.ctrlKey) {
+                        e.preventDefault();
+                        const delta = e.deltaY > 0 ? 0.9 : 1.1;
+                        this.zoom *= delta;
+                        this.zoom = Math.max(0.1, Math.min(5, this.zoom));
+                        document.getElementById('zoomLevel').textContent = Math.round(this.zoom * 100) + '%';
+                        this.render();
+                    }
+                });
+
+                this.canvas.addEventListener('contextmenu', (e) => {
+                    e.preventDefault();
+                    if (this.editMode) {
+                        this.showContextMenu(e);
+                    }
+                });
+
+                // Close context menu on click outside
+                document.addEventListener('click', () => {
+                    const ctxMenu = document.getElementById('contextMenu');
+                    if(ctxMenu) ctxMenu.classList.remove('active');
+                });
+            }
+
+            handleMouseDown(e) {
+                const rect = this.canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+
+                if (this.editMode) {
+                    // Check if clicking on a node
+                    const clickedNode = this.getNodeAtPosition(mouseX, mouseY);
+                    if (clickedNode) {
+                        // Check if clicking on output
+                        const output = this.getOutputAtPosition(clickedNode, mouseX, mouseY);
+                        if (output) {
+                            this.connectionStart = { node: clickedNode, output: output };
+                        } else {
+                            this.selectNode(clickedNode);
+                            this.draggedNode = clickedNode;
+                        }
+                        this.render();
+                        return;
+                    } else {
+                        this.deselectAll();
+                    }
+                }
+
+                // Pan mode
+                this.isDragging = true;
+                this.lastMouseX = e.clientX;
+                this.lastMouseY = e.clientY;
+            }
+
+            handleMouseMove(e) {
+                const rect = this.canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+
+                if (this.isDragging && !this.editMode) {
+                    const dx = e.clientX - this.lastMouseX;
+                    const dy = e.clientY - this.lastMouseY;
+                    this.panX += dx;
+                    this.panY += dy;
+                    this.lastMouseX = e.clientX;
+                    this.lastMouseY = e.clientY;
+                    this.render();
+                } else if (this.draggedNode && this.editMode) {
+                    const worldPos = this.screenToWorld(mouseX, mouseY);
+                    this.draggedNode.x = worldPos.x - this.draggedNode.w / 2;
+                    this.draggedNode.y = worldPos.y - 30;
+                    this.render();
+                } else if (this.connectionStart) {
+                    this.render();
+                    // Draw temporary connection line
+                    const startPos = this.getOutputPosition(this.connectionStart.node, 
+                        this.connectionStart.node.outputs.indexOf(this.connectionStart.output));
+                    this.ctx.save();
+                    this.ctx.strokeStyle = '#0078d4';
+                    this.ctx.lineWidth = 2;
+                    this.ctx.setLineDash([5, 5]);
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(startPos.x, startPos.y);
+                    this.ctx.lineTo(mouseX, mouseY);
+                    this.ctx.stroke();
+                    this.ctx.restore();
+                }
+
+                // Update hover state
+                if (this.editMode) {
+                    this.hoveredNode = this.getNodeAtPosition(mouseX, mouseY);
+                    this.render();
+                }
+            }
+
+            handleMouseUp(e) {
+                if (this.connectionStart) {
+                    const rect = this.canvas.getBoundingClientRect();
+                    const mouseX = e.clientX - rect.left;
+                    const mouseY = e.clientY - rect.top;
+                    const targetNode = this.getNodeAtPosition(mouseX, mouseY);
+                    
+                    if (targetNode && targetNode !== this.connectionStart.node) {
+                        // Create connection
+                        this.connectionStart.output.cnSID = targetNode.sid;
+                        if (!targetNode.pnSIDs) targetNode.pnSIDs = [];
+                        if (!targetNode.pnSIDs.includes(this.connectionStart.node.sid)) {
+                            targetNode.pnSIDs.push(this.connectionStart.node.sid);
+                        }
+                        if (!targetNode.poSIDs) targetNode.poSIDs = [];
+                        targetNode.poSIDs.push(this.connectionStart.output.sid);
+                    }
+                    
+                    this.connectionStart = null;
+                    this.render();
+                }
+
+                this.isDragging = false;
+                this.draggedNode = null;
+            }
+
+            screenToWorld(screenX, screenY) {
+                return {
+                    x: (screenX - this.panX) / this.zoom,
+                    y: (screenY - this.panY) / this.zoom
+                };
+            }
+
+            worldToScreen(x, y) {
+                return {
+                    x: x * this.zoom + this.panX,
+                    y: y * this.zoom + this.panY
+                };
+            }
+
+            getNodeAtPosition(screenX, screenY) {
+                if (!this.flowchartData || !this.flowchartData.nodes) return null;
+                
+                const worldPos = this.screenToWorld(screenX, screenY);
+                
+                for (let i = this.flowchartData.nodes.length - 1; i >= 0; i--) {
+                    const node = this.flowchartData.nodes[i];
+                    if (worldPos.x >= node.x && worldPos.x <= node.x + node.w &&
+                        worldPos.y >= node.y && worldPos.y <= node.y + node.h) {
+                        return node;
+                    }
+                }
+                return null;
+            }
+
+            getOutputAtPosition(node, screenX, screenY) {
+                if (!node.outputs) return null;
+                
+                const worldPos = this.screenToWorld(screenX, screenY);
+                
+                for (let i = 0; i < node.outputs.length; i++) {
+                    const outputY = node.y + 60 + (i * 30);
+                    const outputX = node.x + node.w;
+                    
+                    const dist = Math.sqrt(Math.pow(worldPos.x - outputX, 2) + Math.pow(worldPos.y - outputY, 2));
+                    if (dist < 10) {
+                        return { output: node.outputs[i], index: i };
+                    }
+                }
+                return null;
+            }
+
+            getOutputPosition(node, outputIndex) {
+                const outputY = node.y + 60 + (outputIndex * 30);
+                return this.worldToScreen(node.x + node.w, outputY);
+            }
+
+            selectNode(node) {
+                this.selectedNode = node;
+                this.selectedOutput = null;
+                this.selectedOutputIndex = -1;
+                this.updatePropertiesPanel();
+                this.updateToolbarButtons();
+            }
+
+            deselectAll() {
+                this.selectedNode = null;
+                this.selectedOutput = null;
+                this.selectedOutputIndex = -1;
+                this.updatePropertiesPanel();
+                this.updateToolbarButtons();
+                this.render();
+            }
+
+            updateToolbarButtons() {
+                const hasNode = this.selectedNode !== null;
+                const delNodeBtn = document.getElementById('deleteNodeBtn');
+                const addOutBtn = document.getElementById('addOutputBtn');
+                const delOutBtn = document.getElementById('deleteOutputBtn');
+                const enNodeBtn = document.getElementById('enableNodeBtn');
+                const startBtn = document.getElementById('setStartBtn');
+
+                if(delNodeBtn) delNodeBtn.disabled = !hasNode;
+                if(addOutBtn) addOutBtn.disabled = !hasNode;
+                if(delOutBtn) delOutBtn.disabled = !hasNode || !this.selectedOutput;
+                if(enNodeBtn) enNodeBtn.disabled = !hasNode;
+                if(startBtn) startBtn.disabled = !hasNode;
+            }
+
+            showContextMenu(e) {
+                const menu = document.getElementById('contextMenu');
+                const rect = this.canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+                const clickedNode = this.getNodeAtPosition(mouseX, mouseY);
+
+                let menuItems = [];
+
+                if (clickedNode) {
+                    menuItems = [
+                        { label: 'Add Output', action: () => this.addOutput(clickedNode) },
+                        { label: 'Delete Node', action: () => this.deleteNode(clickedNode) },
+                        { separator: true },
+                        { label: clickedNode.e ? 'Disable Node' : 'Enable Node', 
+                          action: () => this.toggleNodeEnabled(clickedNode) },
+                        { label: 'Set as Start Node', action: () => this.setStartNode(clickedNode) },
+                        { separator: true },
+                        { label: 'Edit Caption', action: () => this.editCaption(clickedNode) },
+                    ];
+                } else {
+                    menuItems = [
+                        { label: 'Add Node', action: () => this.addNodeAt(mouseX, mouseY) },
+                    ];
+                }
+
+                menu.innerHTML = menuItems.map(item => {
+                    if (item.separator) {
+                        return '<div class="context-menu-item separator"></div>';
+                    }
+                    return `<div class="context-menu-item" data-action="${menuItems.indexOf(item)}">${item.label}</div>`;
+                }).join('');
+
+                menu.style.left = e.clientX + 'px';
+                menu.style.top = e.clientY + 'px';
+                menu.classList.add('active');
+
+                // Add click handlers
+                menu.querySelectorAll('.context-menu-item:not(.separator)').forEach(item => {
+                    item.addEventListener('click', (evt) => {
+                        evt.stopPropagation();
+                        const index = parseInt(item.dataset.action);
+                        menuItems[index].action();
+                        menu.classList.remove('active');
+                    });
+                });
+            }
+
+            addNodeAt(screenX, screenY) {
+                const worldPos = this.screenToWorld(screenX, screenY);
+                const newNode = {
+                    sid: Date.now() + Math.floor(Math.random() * 1000000),
+                    pnSIDs: [],
+                    poSIDs: [],
+                    nodeSIDs: [],
+                    outputs: [
+                        {
+                            sid: Date.now() + Math.floor(Math.random() * 1000000) + 1,
+                            cnSID: null,
+                            name: "Option 1",
+                            value: "Value 1",
+                            enable: true,
+                            default: false
+                        }
+                    ],
+                    x: worldPos.x - 210,
+                    y: worldPos.y - 66,
+                    w: 420,
+                    h: 132,
+                    t: "",
+                    s: false,
+                    e: true,
+                    pi: 0,
+                    c: "New Node",
+                    ty: "dictionary",
+                    pr: false,
+                    prfsid: null,
+                    prfnsid: null
+                };
+
+                this.flowchartData.nodes.push(newNode);
+                
+                // Add UI state
+                if (!this.uiStateData.nodes) this.uiStateData.nodes = [];
+                this.uiStateData.nodes.push({
+                    node: {
+                        propertiesBar: {},
+                        nodeTable: {},
+                        color: [0.8, 0.8, 0.8, 1]
+                    },
+                    outputs: [{
+                        color: [0, 0, 0, 1],
+                        linkMode: "line",
+                        propertiesBar: {}
+                    }]
+                });
+
+                this.selectNode(newNode);
+                this.render();
+            }
+
+            addOutput(node) {
+                if (!node) node = this.selectedNode;
+                if (!node) return;
+
+                const newOutput = {
+                    sid: Date.now() + Math.floor(Math.random() * 1000000),
+                    cnSID: null,
+                    name: `Option ${node.outputs.length + 1}`,
+                    value: `Value ${node.outputs.length + 1}`,
+                    enable: true,
+                    default: false
+                };
+
+                node.outputs.push(newOutput);
+                node.h += 30;
+
+                // Update UI state
+                const nodeIndex = this.flowchartData.nodes.indexOf(node);
+                if (this.uiStateData.nodes[nodeIndex]) {
+                    this.uiStateData.nodes[nodeIndex].outputs.push({
+                        color: [0, 0, 0, 1],
+                        linkMode: "line",
+                        propertiesBar: {}
+                    });
+                }
+
+                this.selectNode(node);
+                this.render();
+            }
+
+            deleteNode(node) {
+                if (!node) node = this.selectedNode;
+                if (!node) return;
+
+                const index = this.flowchartData.nodes.indexOf(node);
+                if (index > -1) {
+                    // Remove connections
+                    this.flowchartData.nodes.forEach(n => {
+                        if (n.outputs) {
+                            n.outputs.forEach(output => {
+                                if (output.cnSID === node.sid) {
+                                    output.cnSID = null;
+                                }
+                            });
+                        }
+                        if (n.pnSIDs) {
+                            n.pnSIDs = n.pnSIDs.filter(sid => sid !== node.sid);
+                        }
+                    });
+
+                    this.flowchartData.nodes.splice(index, 1);
+                    if (this.uiStateData.nodes) {
+                        this.uiStateData.nodes.splice(index, 1);
+                    }
+                    
+                    this.deselectAll();
+                    this.render();
+                }
+            }
+
+            toggleNodeEnabled(node) {
+                if (!node) node = this.selectedNode;
+                if (!node) return;
+
+                node.e = !node.e;
+                this.updatePropertiesPanel();
+                this.render();
+            }
+
+            setStartNode(node) {
+                if (!node) node = this.selectedNode;
+                if (!node) return;
+
+                // Remove start from all other nodes
+                this.flowchartData.nodes.forEach(n => n.s = false);
+                node.s = true;
+                this.render();
+            }
+
+            editCaption(node) {
+                if (!node) node = this.selectedNode;
+                if (!node) return;
+
+                const newCaption = prompt('Enter new caption:', node.c);
+                if (newCaption !== null) {
+                    node.c = newCaption;
+                    this.updatePropertiesPanel();
+                    this.render();
+                }
+            }
+
+            updatePropertiesPanel() {
+                const panel = document.getElementById('properties-panel');
+                
+                if (!this.selectedNode) {
+                    panel.innerHTML = `
+                        <div class="property-group">
+                            <h3>No Selection</h3>
+                            <p style="color: #888; font-size: 13px;">Select a node to edit properties</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                const node = this.selectedNode;
+                const nodeIndex = this.flowchartData.nodes.indexOf(node);
+
+                panel.innerHTML = `
+                    <div class="property-group">
+                        <h3>Node Properties</h3>
+                        <div class="property-row">
+                            <label>Caption</label>
+                            <input type="text" id="prop-caption" value="${node.c || ''}" />
+                        </div>
+                        <div class="property-row">
+                            <label>Tags (space-separated)</label>
+                            <input type="text" id="prop-tags" value="${node.t || ''}" />
+                        </div>
+                        <div class="property-row">
+                            <label>
+                                <input type="checkbox" id="prop-enabled" ${node.e ? 'checked' : ''} />
+                                Enabled
+                            </label>
+                        </div>
+                        <div class="property-row">
+                            <label>
+                                <input type="checkbox" id="prop-start" ${node.s ? 'checked' : ''} />
+                                Start Node
+                            </label>
+                        </div>
+                        <div class="property-row">
+                            <label>Border Color</label>
+                            <input type="color" id="prop-color" />
+                        </div>
+                    </div>
+
+                    <div class="property-group">
+                        <h3>Outputs</h3>
+                        <div id="outputs-list"></div>
+                        <button class="small-btn" id="add-output-btn" style="margin-top: 10px; width: 100%;">Add Output</button>
+                    </div>
+                `;
+
+                // Set color value
+                if (this.uiStateData.nodes[nodeIndex]?.node?.color) {
+                    const c = this.uiStateData.nodes[nodeIndex].node.color;
+                    const hex = '#' + [c[0], c[1], c[2]].map(v => 
+                        Math.round(v * 255).toString(16).padStart(2, '0')
+                    ).join('');
+                    document.getElementById('prop-color').value = hex;
+                }
+
+                // Add event listeners
+                document.getElementById('prop-caption').addEventListener('input', (e) => {
+                    node.c = e.target.value;
+                    this.render();
+                });
+
+                document.getElementById('prop-tags').addEventListener('input', (e) => {
+                    node.t = e.target.value;
+                    this.render();
+                });
+
+                document.getElementById('prop-enabled').addEventListener('change', (e) => {
+                    node.e = e.target.checked;
+                    this.render();
+                });
+
+                document.getElementById('prop-start').addEventListener('change', (e) => {
+                    if (e.target.checked) {
+                        this.flowchartData.nodes.forEach(n => n.s = false);
+                        node.s = true;
+                    }
+                    this.render();
+                });
+
+                document.getElementById('prop-color').addEventListener('input', (e) => {
+                    const hex = e.target.value;
+                    const r = parseInt(hex.slice(1, 3), 16) / 255;
+                    const g = parseInt(hex.slice(3, 5), 16) / 255;
+                    const b = parseInt(hex.slice(5, 7), 16) / 255;
+                    
+                    if (!this.uiStateData.nodes[nodeIndex]) {
+                        this.uiStateData.nodes[nodeIndex] = { node: {}, outputs: [] };
+                    }
+                    if (!this.uiStateData.nodes[nodeIndex].node) {
+                        this.uiStateData.nodes[nodeIndex].node = {};
+                    }
+                    this.uiStateData.nodes[nodeIndex].node.color = [r, g, b, 1];
+                    this.render();
+                });
+
+                document.getElementById('add-output-btn').addEventListener('click', () => {
+                    this.addOutput(node);
+                });
+
+                // Render outputs
+                this.renderOutputsList(node, nodeIndex);
+            }
+
+            renderOutputsList(node, nodeIndex) {
+                const container = document.getElementById('outputs-list');
+                if (!container) return;
+
+                container.innerHTML = node.outputs.map((output, i) => `
+                    <div class="output-item ${output.default ? 'default' : ''}">
+                        <div class="output-item-header">
+                            <strong>Output ${i + 1}</strong>
+                            <div class="output-item-controls">
+                                <button class="small-btn" data-output="${i}" data-action="delete">Delete</button>
+                            </div>
+                        </div>
+                        <div class="property-row">
+                            <label>Name</label>
+                            <input type="text" data-output="${i}" data-field="name" value="${output.name}" />
+                        </div>
+                        <div class="property-row">
+                            <label>Value</label>
+                            <input type="text" data-output="${i}" data-field="value" value="${output.value}" />
+                        </div>
+                        <div class="property-row">
+                            <label>
+                                <input type="checkbox" data-output="${i}" data-field="enabled" ${output.enable ? 'checked' : ''} />
+                                Enabled
+                            </label>
+                        </div>
+                        <div class="property-row">
+                            <label>
+                                <input type="checkbox" data-output="${i}" data-field="default" ${output.default ? 'checked' : ''} />
+                                Default Output
+                            </label>
+                        </div>
+                    </div>
+                `).join('');
+
+                // Add event listeners for all outputs
+                container.querySelectorAll('input[data-output]').forEach(input => {
+                    const outputIndex = parseInt(input.dataset.output);
+                    const field = input.dataset.field;
+
+                    if (input.type === 'checkbox') {
+                        input.addEventListener('change', (e) => {
+                            if (field === 'enabled') {
+                                node.outputs[outputIndex].enable = e.target.checked;
+                            } else if (field === 'default') {
+                                // Only one default per node
+                                node.outputs.forEach(o => o.default = false);
+                                node.outputs[outputIndex].default = e.target.checked;
+                            }
+                            this.renderOutputsList(node, nodeIndex);
+                            this.render();
+                        });
+                    } else {
+                        input.addEventListener('input', (e) => {
+                            node.outputs[outputIndex][field] = e.target.value;
+                            this.render();
+                        });
+                    }
+                });
+
+                container.querySelectorAll('button[data-action="delete"]').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        const outputIndex = parseInt(btn.dataset.output);
+                        node.outputs.splice(outputIndex, 1);
+                        node.h -= 30;
+                        
+                        if (this.uiStateData.nodes[nodeIndex]?.outputs) {
+                            this.uiStateData.nodes[nodeIndex].outputs.splice(outputIndex, 1);
+                        }
+                        
+                        this.renderOutputsList(node, nodeIndex);
+                        this.render();
+                    });
+                });
+            }
+
+            enterEditMode() {
+                this.editMode = true;
+                this.originalData = {
+                    flowchart: JSON.parse(JSON.stringify(this.flowchartData)),
+                    uistate: JSON.parse(JSON.stringify(this.uiStateData))
+                };
+
+                this.canvas.classList.add('editing');
+                document.getElementById('toolbar').classList.add('active');
+                document.getElementById('properties-panel').classList.add('active');
+                document.getElementById('editHint').style.display = 'block';
+                
+                const modeIndicator = document.getElementById('mode-indicator');
+                modeIndicator.textContent = 'EDIT MODE';
+                modeIndicator.className = 'edit-mode';
+                
+                // Adjust canvas container to make room for properties panel
+                document.getElementById('canvas-container').style.right = '350px';
+                
+                this.setupCanvas();
+                this.render();
+            }
+
+            exitEditMode(save = false) {
+                if (!save) {
+                    // Restore original data
+                    this.flowchartData = this.originalData.flowchart;
+                    this.uiStateData = this.originalData.uistate;
+                }
+
+                this.editMode = false;
+                this.originalData = null;
+                this.deselectAll();
+
+                this.canvas.classList.remove('editing');
+                document.getElementById('toolbar').classList.remove('active');
+                document.getElementById('properties-panel').classList.remove('active');
+                document.getElementById('editHint').style.display = 'none';
+                
+                const modeIndicator = document.getElementById('mode-indicator');
+                modeIndicator.textContent = 'VIEW MODE';
+                modeIndicator.className = 'view-mode';
+                
+                document.getElementById('canvas-container').style.right = '0';
+                this.setupCanvas();
+                this.render();
+            }
+
+            saveFlowchart() {
+                // Update the loaded files
+                app.jsonData = this.flowchartData;
+                app.uistateData = this.uiStateData;
+                
+                document.getElementById('status').textContent = 'Changes saved';
+                this.exitEditMode(true);
+            }
+
+            saveFlowchartAs() {
+                const jsonStr = JSON.stringify(this.flowchartData, null, '\t');
+                const uistateStr = JSON.stringify(this.uiStateData, null, '\t');
+
+                // Download JSON file
+                const jsonBlob = new Blob([jsonStr], { type: 'application/json' });
+                const jsonUrl = URL.createObjectURL(jsonBlob);
+                const jsonLink = document.createElement('a');
+                jsonLink.href = jsonUrl;
+                jsonLink.download = this.flowchartData.name + '.json';
+                jsonLink.click();
+
+                // Download uistate file
+                const uistateBlob = new Blob([uistateStr], { type: 'application/json' });
+                const uistateUrl = URL.createObjectURL(uistateBlob);
+                const uistateLink = document.createElement('a');
+                uistateLink.href = uistateUrl;
+                uistateLink.download = this.flowchartData.name + '.uistate.json';
+                uistateLink.click();
+
+                document.getElementById('status').textContent = 'Files downloaded';
+                this.exitEditMode(true);
+            }
+
+            loadFlowchart(flowchartData, uiStateData) {
+                this.flowchartData = flowchartData;
+                this.uiStateData = uiStateData;
+                
+                if (uiStateData && uiStateData.flowchart) {
+                    this.zoom = uiStateData.flowchart.z || 1;
+                    document.getElementById('zoomLevel').textContent = Math.round(this.zoom * 100) + '%';
+                }
+
+                this.centerView();
+                this.render();
+            }
+
+            centerView() {
+                if (!this.flowchartData || !this.flowchartData.nodes || this.flowchartData.nodes.length === 0) {
+                    this.panX = this.canvas.width / 2;
+                    this.panY = this.canvas.height / 2;
+                    return;
+                }
+
+                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                
+                this.flowchartData.nodes.forEach(node => {
+                    minX = Math.min(minX, node.x);
+                    minY = Math.min(minY, node.y);
+                    maxX = Math.max(maxX, node.x + node.w);
+                    maxY = Math.max(maxY, node.y + node.h);
+                });
+
+                const centerX = (minX + maxX) / 2;
+                const centerY = (minY + maxY) / 2;
+
+                this.panX = this.canvas.width / 2 - centerX * this.zoom;
+                this.panY = this.canvas.height / 2 - centerY * this.zoom;
+            }
+
+            resetView() {
+                this.zoom = 1;
+                document.getElementById('zoomLevel').textContent = '100%';
+                this.centerView();
+                this.render();
+            }
+
+            render() {
+                if (!this.flowchartData) return;
+
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                this.ctx.save();
+
+                this.drawConnections();
+                this.drawNodes();
+
+                this.ctx.restore();
+            }
+
+            drawConnections() {
+                if (!this.flowchartData.nodes) return;
+
+                this.flowchartData.nodes.forEach(node => {
+                    if (!node.outputs) return;
+
+                    node.outputs.forEach((output, outputIndex) => {
+                        if (output.cnSID && output.enable) {
+                            const targetNode = this.flowchartData.nodes.find(n => n.sid === output.cnSID);
+                            if (targetNode) {
+                                this.drawConnection(node, targetNode, outputIndex, output);
+                            }
+                        }
+                    });
+                });
+            }
+
+            drawConnection(fromNode, toNode, outputIndex, output) {
+                const outputY = fromNode.y + 60 + (outputIndex * 30);
+                const startPos = this.worldToScreen(fromNode.x + fromNode.w, outputY);
+                const endPos = this.worldToScreen(toNode.x, toNode.y + toNode.h / 2);
+
+                let color = '#666';
+                const nodeIndex = this.flowchartData.nodes.indexOf(fromNode);
+                if (this.uiStateData?.nodes?.[nodeIndex]?.outputs?.[outputIndex]?.color) {
+                    const c = this.uiStateData.nodes[nodeIndex].outputs[outputIndex].color;
+                    color = `rgba(${c[0]*255}, ${c[1]*255}, ${c[2]*255}, ${c[3]})`;
+                }
+
+                this.ctx.beginPath();
+                this.ctx.strokeStyle = output.default ? '#4caf50' : color;
+                this.ctx.lineWidth = output.default ? 3 : 2;
+
+                const cpDist = Math.abs(endPos.x - startPos.x) * 0.5;
+                this.ctx.moveTo(startPos.x, startPos.y);
+                this.ctx.bezierCurveTo(
+                    startPos.x + cpDist, startPos.y,
+                    endPos.x - cpDist, endPos.y,
+                    endPos.x, endPos.y
+                );
+                this.ctx.stroke();
+
+                const angle = Math.atan2(endPos.y - startPos.y, endPos.x - startPos.x);
+                const arrowSize = 8;
+                this.ctx.beginPath();
+                this.ctx.moveTo(endPos.x, endPos.y);
+                this.ctx.lineTo(
+                    endPos.x - arrowSize * Math.cos(angle - Math.PI / 6),
+                    endPos.y - arrowSize * Math.sin(angle - Math.PI / 6)
+                );
+                this.ctx.lineTo(
+                    endPos.x - arrowSize * Math.cos(angle + Math.PI / 6),
+                    endPos.y - arrowSize * Math.sin(angle + Math.PI / 6)
+                );
+                this.ctx.closePath();
+                this.ctx.fillStyle = this.ctx.strokeStyle;
+                this.ctx.fill();
+            }
+
+            drawNodes() {
+                if (!this.flowchartData.nodes) return;
+
+                this.flowchartData.nodes.forEach((node, index) => {
+                    this.drawNode(node, index);
+                });
+            }
+
+            drawNode(node, index) {
+                const pos = this.worldToScreen(node.x, node.y);
+                const width = node.w * this.zoom;
+                const height = node.h * this.zoom;
+
+                let borderColor = '#cccccc';
+                if (node.s) borderColor = '#4caf50';
+                if (this.uiStateData?.nodes?.[index]?.node?.color) {
+                    const c = this.uiStateData.nodes[index].node.color;
+                    borderColor = `rgb(${c[0]*255}, ${c[1]*255}, ${c[2]*255})`;
+                }
+
+                // Highlight selected or hovered
+                if (this.editMode && (node === this.selectedNode || node === this.hoveredNode)) {
+                    this.ctx.fillStyle = '#4a4a4a';
+                } else {
+                    this.ctx.fillStyle = '#3a3a3a';
+                }
+
+                this.ctx.strokeStyle = node === this.selectedNode ? '#0078d4' : borderColor;
+                this.ctx.lineWidth = node === this.selectedNode ? 3 : 2;
+                this.ctx.fillRect(pos.x, pos.y, width, height);
+                this.ctx.strokeRect(pos.x, pos.y, width, height);
+
+                if (!node.e) this.ctx.globalAlpha = 0.5;
+
+                this.ctx.fillStyle = '#e0e0e0';
+                this.ctx.font = `bold ${Math.max(10, 14 * this.zoom)}px Arial`;
+                this.ctx.fillText(node.c || 'Node', pos.x + 10 * this.zoom, pos.y + 25 * this.zoom);
+
+                if (node.t) {
+                    this.ctx.fillStyle = '#888';
+                    this.ctx.font = `${Math.max(9, 11 * this.zoom)}px Arial`;
+                    this.ctx.fillText(`Tags: ${node.t}`, pos.x + 10 * this.zoom, pos.y + 45 * this.zoom);
+                }
+
+                if (node.outputs?.length > 0) {
+                    const startY = 60;
+                    node.outputs.forEach((output, i) => {
+                        if (output.enable) {
+                            this.drawOutput(node, output, i, pos, startY);
+                        }
+                    });
+                }
+
+                const inputPos = this.worldToScreen(node.x, node.y + node.h / 2);
+                this.ctx.beginPath();
+                this.ctx.arc(inputPos.x, inputPos.y, Math.max(4, 6 * this.zoom), 0, Math.PI * 2);
+                this.ctx.fillStyle = '#ff9800';
+                this.ctx.fill();
+                this.ctx.strokeStyle = '#fff';
+                this.ctx.lineWidth = 1;
+                this.ctx.stroke();
+
+                this.ctx.globalAlpha = 1;
+            }
+
+            drawOutput(node, output, index, nodePos, startY) {
+                const y = startY + (index * 30);
+                const textY = nodePos.y + y * this.zoom;
+
+                this.ctx.fillStyle = output.default ? '#4caf50' : '#e0e0e0';
+                this.ctx.font = `${Math.max(9, 12 * this.zoom)}px Arial`;
+                const nameText = `${output.name}: ${output.value}`;
+                this.ctx.fillText(nameText, nodePos.x + 15 * this.zoom, textY);
+
+                const dotPos = this.worldToScreen(node.x + node.w, node.y + y);
+                this.ctx.beginPath();
+                this.ctx.arc(dotPos.x, dotPos.y, Math.max(4, 6 * this.zoom), 0, Math.PI * 2);
+                this.ctx.fillStyle = '#0078d4';
+                this.ctx.fill();
+                this.ctx.strokeStyle = '#fff';
+                this.ctx.lineWidth = 1;
+                this.ctx.stroke();
+
+                if (output.default) {
+                    this.ctx.fillStyle = '#4caf50';
+                    this.ctx.font = `bold ${Math.max(8, 10 * this.zoom)}px Arial`;
+                    const metrics = this.ctx.measureText(nameText);
+                    this.ctx.fillText('DEFAULT', nodePos.x + 15 * this.zoom + metrics.width + 10, textY);
+                }
+            }
+        }
+
+        // Application
+        const app = {
+            editor: null,
+            jsonData: null,
+            uistateData: null,
+            jsonFile: null,
+            uistateFile: null
+        };
+
+        window.addEventListener('DOMContentLoaded', () => {
+            // 1. Сначала убеждаемся, что редактор создан
+            app.editor = new FlowchartEditor('canvas');
+
+            // 2. Ссылки на меню
+            const menus = {
+                file: { btn: document.getElementById('fileMenuBtn'), drop: document.getElementById('fileDropdown') },
+                edit: { btn: document.getElementById('editMenuBtn'), drop: document.getElementById('editDropdown') },
+                view: { btn: document.getElementById('viewMenuBtn'), drop: document.getElementById('viewDropdown') }
+            };
+
+            function closeAllDropdowns() {
+                Object.values(menus).forEach(m => {
+                    if(m.drop) m.drop.style.display = 'none';
+                    if(m.btn) m.btn.classList.remove('active');
+                });
+            }
+
+            // 3. Обработчики кликов по пунктам меню
+            Object.values(menus).forEach(m => {
+                if (!m.btn) return;
+                m.btn.addEventListener('click', (e) => {
+                    if (m.btn.style.pointerEvents === 'none') return;
+                    e.stopPropagation();
+                    const isAlreadyOpen = m.drop.style.display === 'block';
+                    closeAllDropdowns();
+                    if (!isAlreadyOpen) {
+                        m.drop.style.display = 'block';
+                        m.btn.classList.add('active');
+                    }
+                });
+            });
+
+            document.addEventListener('click', () => closeAllDropdowns());
+
+            // 4. Логика импорта файлов
+            const fileInput = document.getElementById('jsonFiles');
+            const importTrigger = document.getElementById('importTrigger');
+            
+            if (importTrigger) {
+                importTrigger.addEventListener('click', () => fileInput.click());
+            }
+
+            if (fileInput) {
+                fileInput.addEventListener('change', async (e) => {
+                    const files = Array.from(e.target.files);
+                    if (files.length === 0) return;
+
+                    const jsonFile = files.find(f => f.name.endsWith('.json') && !f.name.endsWith('.uistate.json'));
+                    if (!jsonFile) return alert("Ошибка: Выберите основной файл .json");
+
+                    const baseName = jsonFile.name.replace('.json', '');
+                    const expectedUistate = baseName + '.uistate.json';
+                    const uistateFile = files.find(f => f.name === expectedUistate);
+
+                    if (!uistateFile) return alert(`Ошибка: В выбранных файлах не найден сопутствующий файл состояния:\n${expectedUistate}`);
+
+                    try {
+                        app.jsonData = JSON.parse(await jsonFile.text());
+                        app.uistateData = JSON.parse(await uistateFile.text());
+                        
+                        app.editor.loadFlowchart(app.jsonData, app.uistateData);
+                        
+                        // Активация меню Edit
+                        menus.edit.btn.style.opacity = "1";
+                        menus.edit.btn.style.pointerEvents = "auto";
+                        
+                        const statusEl = document.getElementById('status');
+                        const fnameEl = document.getElementById('current-filename');
+                        if(statusEl) statusEl.textContent = `Nodes: ${app.jsonData.nodes.length}`;
+                        if(fnameEl) fnameEl.textContent = jsonFile.name.toUpperCase();
+                        
+                        fileInput.value = ''; // Сброс для возможности повторного выбора
+                    } catch (err) {
+                        alert("Ошибка чтения JSON: " + err.message);
+                    }
+                });
+            }
+
+            // 5. Кнопки Edit Mode и Reset View
+            const toggleEditBtn = document.getElementById('toggleEditModeBtn');
+            const cancelEditBtn = document.getElementById('menuCancelEditBtn');
+            const menuSaveBtn = document.getElementById('menuSaveBtn');
+            const menuSaveAsBtn = document.getElementById('menuSaveAsBtn');
+
+            if (toggleEditBtn) {
+                toggleEditBtn.addEventListener('click', () => {
+                    if (!app.editor.editMode) {
+                        app.editor.enterEditMode();
+                        toggleEditBtn.textContent = "Exit & Save Changes";
+                        if(cancelEditBtn) cancelEditBtn.style.display = "block";
+                        
+                        [menuSaveBtn, menuSaveAsBtn].forEach(btn => {
+                            if(btn) {
+                                btn.classList.remove('disabled');
+                                btn.style.opacity = "1";
+                            }
+                        });
+                    } else {
+                        app.editor.saveFlowchart();
+                        resetEditMenuUI();
+                    }
+                });
+            }
+
+            if (cancelEditBtn) {
+                cancelEditBtn.addEventListener('click', () => {
+                    app.editor.exitEditMode(false);
+                    resetEditMenuUI();
+                });
+            }
+
+            function resetEditMenuUI() {
+                if(toggleEditBtn) toggleEditBtn.textContent = "Enter Edit Mode";
+                if(cancelEditBtn) cancelEditBtn.style.display = "none";
+                
+                [menuSaveBtn, menuSaveAsBtn].forEach(btn => {
+                    if(btn) {
+                        btn.classList.add('disabled');
+                        btn.style.opacity = "0.5";
+                    }
+                });
+            }
+            
+            // Сохранение по меню
+            if(menuSaveBtn) {
+                menuSaveBtn.addEventListener('click', () => {
+                    if(!menuSaveBtn.classList.contains('disabled')) app.editor.saveFlowchart();
+                });
+            }
+            if(menuSaveAsBtn) {
+                menuSaveAsBtn.addEventListener('click', () => {
+                    if(!menuSaveAsBtn.classList.contains('disabled')) app.editor.saveFlowchartAs();
+                });
+            }
+
+            const resetViewBtn = document.getElementById('menuResetViewBtn');
+            if(resetViewBtn) {
+                resetViewBtn.addEventListener('click', () => app.editor.resetView());
+            }
+            
+            // 6. Кнопки тулбара (Delete, Add Output и т.д.)
+            document.getElementById('addNodeBtn').addEventListener('click', () => {
+                app.editor.addNodeAt(app.editor.canvas.width / 2, app.editor.canvas.height / 2);
+            });
+            document.getElementById('deleteNodeBtn').addEventListener('click', () => app.editor.deleteNode());
+            document.getElementById('addOutputBtn').addEventListener('click', () => app.editor.addOutput());
+            document.getElementById('enableNodeBtn').addEventListener('click', () => app.editor.toggleNodeEnabled());
+            document.getElementById('setStartBtn').addEventListener('click', () => app.editor.setStartNode());
+        });
+    </script>
+</body>
+</html>
