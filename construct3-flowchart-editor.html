@@ -239,6 +239,66 @@
         #context-menu.active { display: block; }
         .ctx-item { padding: 8px 15px; cursor: pointer; font-size: 13px; }
         .ctx-item:hover { background: #3a3a3a; }
+
+        /* --- MODAL --- */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 3000;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            backdrop-filter: blur(2px);
+        }
+        .modal-overlay.active { display: flex; }
+        
+        .modal-box {
+            background: var(--bg-panel);
+            width: 90%; max-width: 600px;
+            max-height: 85vh;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            display: flex; flex-direction: column;
+            position: relative;
+        }
+
+        .modal-close {
+            position: absolute; top: 10px; right: 15px;
+            background: transparent; border: none;
+            color: var(--text-dim); font-size: 24px; cursor: pointer;
+            z-index: 10;
+        }
+        .modal-close:hover { color: var(--danger); }
+
+        .modal-content {
+            padding: 20px 30px;
+            overflow-y: auto;
+            color: var(--text-main);
+            line-height: 1.6;
+        }
+
+        /* Help Content Styles */
+        .modal-content h2 { color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 15px; }
+        .modal-content h3 { color: var(--success); margin: 20px 0 10px 0; font-size: 1.1em; }
+        .modal-content ul, .modal-content ol { padding-left: 20px; margin-bottom: 10px; }
+        .modal-content li { margin-bottom: 5px; }
+        
+        .modal-content table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; }
+        .modal-content th { text-align: left; border-bottom: 1px solid var(--border); color: var(--text-dim); padding: 5px; }
+        .modal-content td { border-bottom: 1px solid #333; padding: 5px; }
+        .modal-content kbd {
+            background: #444; border-radius: 3px; padding: 2px 5px;
+            font-family: monospace; border: 1px solid #555;
+        }
+        
+        .modal-content pre {
+            background: #222; padding: 10px; border-radius: 4px;
+            overflow-x: auto; font-family: 'Consolas', monospace; font-size: 12px;
+            border: 1px solid var(--border); color: #ccc;
+        }
+        .modal-content a { color: var(--accent); text-decoration: none; }
+        .modal-content a:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
@@ -290,6 +350,17 @@
                 <div id="btn-reset-view" class="dropdown-item">Reset View</div>
             </div>
         </div>
+        <div class="menu-item" data-menu="help">Help
+            <div class="dropdown" id="helpDropdown">
+                <div class="dropdown-item" onclick="app.openHelp('getting-started')">Getting Started</div>
+                <div class="dropdown-item" onclick="app.openHelp('controls')">Controls & Shortcuts</div>
+                <div class="separator"></div>
+                <div class="dropdown-item" onclick="app.openHelp('import-export')">Import / Export</div>
+                <div class="dropdown-item" onclick="app.openHelp('formats')">Formats (MiniFlow & C3)</div>
+                <div class="separator"></div>
+                <div class="dropdown-item" onclick="app.openHelp('about')">About / Feedback</div>
+            </div>
+        </div>
         <div id="status-bar" style="margin-left: 20px; font-size: 11px; color: #aaa;">No flowchart loaded</div>
         <div id="filename-display" style="margin-left: auto; padding-right: 15px; color: var(--accent); font-size: 11px; font-weight: bold;"></div>
     </div>
@@ -329,6 +400,15 @@
     <input type="file" id="file-input" accept=".json" multiple style="display: none;">
     <input type="file" id="file-input-mini" accept=".json" style="display: none;">
     <div id="context-menu"></div>
+    <script src="help-content.js"></script>
+
+    <!-- HELP MODAL -->
+    <div id="help-modal" class="modal-overlay">
+        <div class="modal-box">
+            <button class="modal-close" onclick="document.getElementById('help-modal').classList.remove('active')">×</button>
+            <div id="help-content" class="modal-content"></div>
+        </div>
+    </div>
 
     <script>
         // --- CONFIGURATION ---
@@ -497,6 +577,13 @@
                     }
                 });
 
+               // Закрытие модального окна помощи при клике на затемнение
+                document.getElementById('help-modal').addEventListener('mousedown', (e) => {
+                    if (e.target.id === 'help-modal') {
+                        e.target.classList.remove('active');
+                    }
+                });
+
                 // --- KEYBOARD SHORTCUTS (DOWN) ---
                 document.addEventListener('keydown', e => {
                     // 1. SPACE (PAN MODE)
@@ -520,6 +607,12 @@
 
                     // 3. ESCAPE
                     if (e.code === 'Escape') {
+                        const modal = document.getElementById('help-modal');
+                        if (modal.classList.contains('active')) {
+                            modal.classList.remove('active');
+                            return; // Прерываем, чтобы не снять выделение на холсте
+                        }
+                        
                         if (this.state.mode === 'edit') {
                             this.selectSingle(null);
                             this.state.selectionType = 'none';
@@ -1246,15 +1339,15 @@
                 const count = this.state.selection.length;
                 const panel = document.getElementById('properties-panel');
                 
-                // Ссылки на кнопки тулбара для управления их состоянием
+                // Кнопки тулбара
                 const btnDel = document.getElementById('tool-del-node');
                 const btnAddOut = document.getElementById('tool-add-out');
                 const btnEnable = document.getElementById('tool-enable');
                 const btnStart = document.getElementById('tool-start');
                 const btnDelOut = document.getElementById('tool-del-out');
 
+                // 1. Ничего не выделено
                 if (count === 0) {
-                    // 1. Ничего не выделено
                     panel.innerHTML = '<div class="prop-group"><h3>No Selection</h3></div>';
                     btnDel.disabled = true;
                     btnAddOut.disabled = true;
@@ -1262,38 +1355,36 @@
                     btnStart.disabled = true;
                     btnDelOut.disabled = true;
                 } 
+                // 2. Выделены СВЯЗИ
                 else if (this.state.selectionType === 'connection') {
-                    // 2. Выделены СВЯЗИ
                     const title = count === 1 ? 'Connection Selected' : `Selection (${count} connections)`;
                     panel.innerHTML = `<div class="prop-group"><h3>${title}</h3><p style="color:#aaa">Press Delete to remove connection.</p></div>`;
                     
-                    btnDel.disabled = false; // Удаление разрешено
-                    
-                    // Отключаем кнопки, специфичные для нод
+                    btnDel.disabled = false;
                     btnAddOut.disabled = true;
                     btnEnable.disabled = true;
                     btnStart.disabled = true;
                     btnDelOut.disabled = true;
                 } 
+                // 3. Выделены НОДЫ
                 else if (this.state.selectionType === 'node') {
-                    // 3. Выделены НОДЫ
                     btnDel.disabled = false;
 
                     if (count === 1) {
-                        // Одиночное выделение ноды - показываем свойства
+                        // Одиночное выделение
                         this.generateProperties(this.state.selection[0]);
                         
-                        // Активируем кнопки управления нодой
+                        // Активируем кнопки действий для одной ноды
                         btnAddOut.disabled = false;
-                        btnEnable.disabled = false;
+                        btnEnable.disabled = false; 
                         btnStart.disabled = false;
                     } else {
-                        // Множественное выделение нод
+                        // Множественное выделение
                         panel.innerHTML = `<div class="prop-group"><h3>Multiple Selection (${count} items)</h3><p style="color:#aaa">Properties editing is disabled for multiple items.</p></div>`;
                         
-                        // Отключаем специфичные действия, оставляем только удаление
+                        // Отключаем специфичные действия для группы (пока не реализовано массовое редактирование)
                         btnAddOut.disabled = true;
-                        btnEnable.disabled = true; // При желании можно реализовать массовое вкл/выкл позже
+                        btnEnable.disabled = true; 
                         btnStart.disabled = true;
                         btnDelOut.disabled = true;
                     }
@@ -1773,8 +1864,13 @@
 
                 // 8. DISABLED OVERLAY
                 if (!node.e) {
-                    this.ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                    this.ctx.save();
+                    this.ctx.beginPath(); // Начинаем новый путь
+                    // Повторяем контур ноды
+                    this.ctx.roundRect(pos.x, pos.y, w, h, rad);
+                    this.ctx.fillStyle = 'rgba(20, 20, 20, 0.6)'; // Полупрозрачный черный
                     this.ctx.fill();
+                    this.ctx.restore();
                 }
 
                 this.ctx.restore();
@@ -1980,6 +2076,21 @@
                     const idx = evt.target.dataset.i;
                     if(idx !== undefined) { items[idx].fn(); menu.classList.remove('active'); }
                 };
+            }
+
+            // Открыть окно Help
+            openHelp(sectionId) {
+                const modal = document.getElementById('help-modal');
+                const content = document.getElementById('help-content');
+                
+                // Проверяем, загрузились ли данные из внешнего файла
+                if (typeof HELP_CONTENTS === 'undefined') {
+                    content.innerHTML = "<h2>Error</h2><p>Help content file (help-content.js) not found.</p>";
+                } else {
+                    content.innerHTML = HELP_CONTENTS[sectionId] || "<h2>Error</h2><p>Section not found.</p>";
+                }
+                
+                modal.classList.add('active');
             }
 
             // --- FILE OPERATIONS ---
@@ -2483,12 +2594,32 @@
 
         // 8. Toolbar Actions
         const toolAction = (id, fn) => document.getElementById(id).onclick = fn;
+        
         toolAction('tool-add-node', () => app.addNode(app.canvas.width/2, app.canvas.height/2));
-        toolAction('tool-del-node', () => app.deleteNode(app.state.selection.node));
-        toolAction('tool-add-out', () => document.getElementById('prop-add-out').click());
-        toolAction('tool-enable', () => { if(app.state.selection.node) { app.state.selection.node.e = !app.state.selection.node.e; app.generateProperties(app.state.selection.node); app.render(); }});
-        toolAction('tool-start', () => { if(app.state.selection.node) { app.data.flowchart.nodes.forEach(n=>n.s=false); app.state.selection.node.s=true; app.generateProperties(app.state.selection.node); app.render(); }});
         toolAction('tool-del-node', () => app.deleteSelection());
+        toolAction('tool-add-out', () => document.getElementById('prop-add-out').click());
+        
+        // Enable/Disable
+        toolAction('tool-enable', () => { 
+            if (app.state.selectionType === 'node' && app.state.selection.length === 1) { 
+                const node = app.state.selection[0];
+                node.e = !node.e; 
+                app.generateProperties(node); // Обновляем чекбокс в панели
+                app.render(); 
+            }
+        });
+        
+        // Set Start
+        toolAction('tool-start', () => { 
+            if (app.state.selectionType === 'node' && app.state.selection.length === 1) { 
+                const node = app.state.selection[0];
+                // Сбрасываем флаг у всех остальных
+                app.data.flowchart.nodes.forEach(n => n.s = false); 
+                node.s = true; 
+                app.generateProperties(node); 
+                app.render(); 
+            }
+        });
     </script>
 </body>
 </html>
