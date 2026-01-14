@@ -85,6 +85,33 @@
         .dropdown-item.disabled { opacity: 0.5; cursor: default; }
         .separator { height: 1px; background: #454545; margin: 4px 0; }
 
+        /* --- FILENAME EDITING --- */
+        #filename-display {
+            cursor: pointer;
+            border-bottom: 1px dashed transparent;
+            transition: border-color 0.2s, color 0.2s;
+            max-width: 200px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        #filename-display:hover {
+            border-bottom-color: var(--accent);
+            color: var(--accent-hover);
+        }
+        #filename-input {
+            background: #222;
+            color: var(--accent);
+            border: 1px solid var(--accent);
+            border-radius: 2px;
+            padding: 2px 5px;
+            font-size: 11px;
+            font-weight: bold;
+            font-family: inherit;
+            outline: none;
+            width: 150px;
+        }
+
         /* --- SUBMENU --- */
         .dropdown-item {
             position: relative; /* Для позиционирования подменю */
@@ -358,6 +385,12 @@
                 }
                 return false;
             },
+            isRectOverlap: (r1, r2) => {
+                return !(r2.left > r1.right || 
+                        r2.right < r1.left || 
+                        r2.top > r1.bottom || 
+                        r2.bottom < r1.top);
+            },
             uuid: () => Date.now() + Math.floor(Math.random() * 1000000)
         };
 
@@ -376,6 +409,7 @@
                     
                     // Множественное выделение
                     selection: [], // Массив выделенных нод
+                    selectionType: 'none', // 'none' | 'node' | 'connection'
                     selectedOutput: null, // Для редактирования свойств конкретного аутпута
                     
                     dragNode: null, // (Устарело, теперь используем selection для драга)
@@ -402,6 +436,7 @@
                 this.resize();
                 window.addEventListener('resize', () => { this.resize(); this.render(); });
                 this.bindEvents();
+                this.bindFilenameEvents(); // <--- ДОБАВЛЕНО
             }
 
             resize() {
@@ -475,18 +510,20 @@
                     const targetTag = e.target.tagName;
                     const isInputActive = targetTag === 'INPUT' || targetTag === 'TEXTAREA' || e.target.isContentEditable;
 
-                    // 2. DELETE
-                    if (e.code === 'Delete') {
+                    // 2. DELETE, BACKSPACE
+                    if (e.code === 'Delete' || e.code === 'Backspace') {
                         if (!isInputActive && this.state.mode === 'edit') {
-                            this.deleteSelectedNodes();
+                            if (e.code === 'Backspace') e.preventDefault();
+                            this.deleteSelection(); // Вызов обновленного метода
                         }
                     }
 
-                    // 3. BACKSPACE
-                    if (e.code === 'Backspace') {
-                        if (!isInputActive && this.state.mode === 'edit') {
-                            e.preventDefault(); // Блокируем "Назад" в браузере
-                            this.deleteSelectedNodes();
+                    // 3. ESCAPE
+                    if (e.code === 'Escape') {
+                        if (this.state.mode === 'edit') {
+                            this.selectSingle(null);
+                            this.state.selectionType = 'none';
+                            this.render();
                         }
                     }
 
@@ -537,6 +574,57 @@
                 });
             }
 
+            bindFilenameEvents() {
+                const display = document.getElementById('filename-display');
+                
+                display.onclick = () => {
+                    // Не разрешаем редактировать, если файл не загружен
+                    if (!this.data.flowchart) return;
+                    
+                    // Если уже редактируем (есть инпут), выходим
+                    if (display.querySelector('input')) return;
+
+                    const currentName = this.data.flowchart.name || 'flowchart';
+                    
+                    // Создаем инпут
+                    const input = document.createElement('input');
+                    input.id = 'filename-input';
+                    input.value = currentName;
+                    
+                    // Обработка сохранения
+                    const save = () => {
+                        let val = input.value.trim();
+                        // Валидация: разрешаем буквы, цифры, _, -, пробелы. Остальное в _
+                        val = val.replace(/[^a-zA-Z0-9_\-\sа-яА-Я]/g, '_');
+                        
+                        if (!val) val = 'flowchart'; // Дефолт, если пусто
+                        
+                        this.data.flowchart.name = val;
+                        display.textContent = val;
+                    };
+
+                    // Blur = Сохранить
+                    input.onblur = save;
+                    
+                    // Keydown
+                    input.onkeydown = (e) => {
+                        e.stopPropagation(); // Чтобы не срабатывали хоткеи редактора (Del, Space)
+                        if (e.key === 'Enter') {
+                            input.blur(); // Вызовет save
+                        }
+                        if (e.key === 'Escape') {
+                            // Отмена - возвращаем старое имя без сохранения
+                            display.textContent = currentName; 
+                        }
+                    };
+
+                    display.textContent = '';
+                    display.appendChild(input);
+                    input.focus();
+                    input.select();
+                };
+            }
+
             // --- INPUT HANDLING ---
 
             handleInput(type, e) {
@@ -585,7 +673,41 @@
                                 return; 
                             }
 
-                            // 2. Ресайз
+                            // 2. Проверка клика по СВЯЗИ (Добавляем этот блок)
+                            const hitConn = this.hitTestConnection(mx, my);
+                            if (hitConn) {
+                                const isShift = e.shiftKey;
+                                
+                                // Если ранее были выделены ноды, сбрасываем их
+                                if (this.state.selectionType === 'node') {
+                                    this.selectSingle(null);
+                                }
+                                
+                                this.state.selectionType = 'connection';
+
+                                // Логика мультивыделения для связей
+                                if (isShift) {
+                                    const index = this.state.selection.findIndex(x => x.output === hitConn.output);
+                                    if (index >= 0) {
+                                        this.state.selection.splice(index, 1);
+                                    } else {
+                                        this.state.selection.push(hitConn);
+                                    }
+                                } else {
+                                    // Если кликнули без шифта по уже выделенной - не сбрасываем (для удобства), 
+                                    // но если она не была выделена - выбираем только её.
+                                    const alreadySelected = this.isSelectedConnection(hitConn.output);
+                                    if (!alreadySelected) {
+                                        this.state.selection = [hitConn];
+                                    }
+                                }
+                                
+                                this.updateUI(); // Обновит панель свойств (скроет свойства нод)
+                                this.render();
+                                return;
+                            }
+
+                            // 2.1. Ресайз
                             const resizeHit = this.hitTestResize(mx, my);
                             // Ресайзим, если кликнули по хендлу уже выделенной ноды, или если выделим её сейчас
                             if (resizeHit) {
@@ -603,6 +725,12 @@
 
                             // 3. Выделение / Драг Нод
                             if (hitNode) {
+                                // Если были выделены связи, сбрасываем их полностью
+                                if (this.state.selectionType === 'connection') {
+                                    this.state.selection = [];
+                                }
+                                this.state.selectionType = 'node'; // Устанавливаем тип
+
                                 const isShift = e.shiftKey;
                                 const alreadySelected = this.isSelected(hitNode);
 
@@ -621,9 +749,14 @@
                                 this.state.dragStartWorld = { x: wp.x, y: wp.y }; // Якорь для группы
                             } 
                             else {
-                                // 4. Пустое место -> Marquee (если не пробел)
-                                if (!this.state.isSpacePressed) {
+                                // 5. Пустое место -> Сброс всего (если не пробел)
+                                    if (!this.state.isSpacePressed) {
+                                        if (!e.shiftKey) {
+                                            this.selectSingle(null);
+                                            this.state.selectionType = 'none'; // Сбрасываем тип
+                                        }
                                     if (!e.shiftKey) this.selectSingle(null);
+
                                     this.state.marqueeStart = { x: mx, y: my };
                                     this.state.marqueeCurrent = { x: mx, y: my };
                                 }
@@ -743,20 +876,27 @@
                         }
                         
                         this.state.hover.node = hitNode;
-                        this.state.hover.output = hitOut;
+                        this.state.hover.output = hitOut; // hitOut уже найден выше в цикле
                         this.state.hover.connection = (!hitNode) ? this.hitTestConnection(mx, my) : null;
 
+                        // ПРИОРИТЕТЫ КУРСОРОВ
                         if (hitOut) {
-                            this.canvas.style.cursor = 'crosshair'; 
-                        } else if (this.isSelected(hitNode)) {
-                            const resizeHit = this.hitTestResize(mx, my);
-                            if (resizeHit) {
-                                this.canvas.style.cursor = resizeHit.dir === 'w' ? 'ew-resize' : 'ns-resize';
+                            // 1. Наведение на точку выхода
+                            this.canvas.style.cursor = 'pointer'; // Как вы просили
+                        } else if (this.state.hover.connection) {
+                            // 2. Наведение на связь
+                            this.canvas.style.cursor = 'pointer'; // Как вы просили
+                        } else if (hitNode) {
+                            // 3. Наведение на ноду
+                            if (this.isSelected(hitNode)) {
+                                const resizeHit = this.hitTestResize(mx, my);
+                                this.canvas.style.cursor = resizeHit ? (resizeHit.dir === 'w' ? 'ew-resize' : 'ns-resize') : 'grab';
                             } else {
                                 this.canvas.style.cursor = 'grab';
                             }
                         } else {
-                             this.canvas.style.cursor = hitNode ? 'grab' : 'default';
+                            // 4. Пустое место
+                            this.canvas.style.cursor = 'default';
                         }
                         // Если объект под курсором изменился, перерисовываем холст
                         const outputChanged = (prevHoverOut?.output !== hitOut?.output);
@@ -807,20 +947,24 @@
                 }
             }
 
-            applyMarqueeSelection(isShift) {
+           applyMarqueeSelection(isShift) {
                 if (!this.state.marqueeStart || !this.state.marqueeCurrent) return;
 
-                // Нормализуем прямоугольник выделения (экранные координаты)
+                // 1. Нормализуем координаты рамки (экранные -> экранные Rect)
                 const x1 = Math.min(this.state.marqueeStart.x, this.state.marqueeCurrent.x);
                 const y1 = Math.min(this.state.marqueeStart.y, this.state.marqueeCurrent.y);
                 const x2 = Math.max(this.state.marqueeStart.x, this.state.marqueeCurrent.x);
                 const y2 = Math.max(this.state.marqueeStart.y, this.state.marqueeCurrent.y);
+                const marqueeRect = { left: x1, top: y1, right: x2, bottom: y2 };
 
-                // Если просто кликнули (рамка слишком мала), игнорируем
+                // Игнорируем микро-сдвиги
                 if (Math.abs(x2 - x1) < 5 && Math.abs(y2 - y1) < 5) return;
 
+                const candidateNodes = [];
+                const candidateConns = [];
+
+                // 2. Поиск НОД в рамке
                 this.data.flowchart.nodes.forEach(node => {
-                    // Конвертируем ноду в экранные координаты
                     const outputsCount = node.outputs ? node.outputs.length : 0;
                     const contentH = CONFIG.dims.headerH + (outputsCount * CONFIG.dims.rowH) + CONFIG.dims.footerH + 10;
                     const actualH = Math.max(node.h, contentH);
@@ -828,17 +972,92 @@
                     const tl = Utils.worldToScreen(node.x - node.w/2, node.y - actualH/2, this.view.panX, this.view.panY, this.view.zoom);
                     const br = Utils.worldToScreen(node.x + node.w/2, node.y + actualH/2, this.view.panX, this.view.panY, this.view.zoom);
                     
-                    // Пересечение прямоугольников
-                    // !(rect1.right < rect2.left || rect1.left > rect2.right || rect1.bottom < rect2.top || rect1.top > rect2.bottom)
-                    const isIntersecting = !(br.x < x1 || tl.x > x2 || br.y < y1 || tl.y > y2);
+                    const nodeRect = { left: tl.x, top: tl.y, right: br.x, bottom: br.y };
 
-                    if (isIntersecting) {
-                        this.addToSelection(node);
-                    } else if (!isShift) {
-                        // Если нет шифта, то непересекающиеся должны быть убраны (только если мы не добавляем к текущему)
-                        // Но логика "Клик по пустому + Drag" обычно сбрасывает все в начале (в mousedown), поэтому здесь просто добавляем.
+                    if (Utils.isRectOverlap(marqueeRect, nodeRect)) {
+                        candidateNodes.push(node);
                     }
                 });
+
+                // 3. Поиск СВЯЗЕЙ в рамке (только если не нашли ноды, либо ищем всё для проверки приоритета)
+                // Для UX лучше: если зацепили ноду, связи игнорируем. Но посчитаем всё.
+                this.data.flowchart.nodes.forEach(node => {
+                    if (!node.outputs) return;
+                    node.outputs.forEach((out, idx) => {
+                        if (out.cnSID && out.enable) {
+                            const target = this.data.flowchart.nodes.find(n => n.sid === out.cnSID);
+                            if (target) {
+                                const pStart = this.getOutputPos(node, idx);
+                                const pEnd = this.getNodeInputPos(target);
+
+                                // Вычисляем Bounding Box кривой Безье (упрощенно по контрольным точкам)
+                                // Безье: Start -> CP1 -> CP2 -> End
+                                const cpDist = Math.abs(pEnd.x - pStart.x) * 0.5;
+                                const cp1 = { x: pStart.x + cpDist, y: pStart.y };
+                                const cp2 = { x: pEnd.x - cpDist, y: pEnd.y };
+
+                                const minX = Math.min(pStart.x, pEnd.x, cp1.x, cp2.x);
+                                const maxX = Math.max(pStart.x, pEnd.x, cp1.x, cp2.x);
+                                const minY = Math.min(pStart.y, pEnd.y, cp1.y, cp2.y);
+                                const maxY = Math.max(pStart.y, pEnd.y, cp1.y, cp2.y);
+
+                                // Добавляем небольшой padding (толщина линии)
+                                const connRect = { left: minX - 5, top: minY - 5, right: maxX + 5, bottom: maxY + 5 };
+
+                                if (Utils.isRectOverlap(marqueeRect, connRect)) {
+                                    candidateConns.push({ output: out, sourceNode: node });
+                                }
+                            }
+                        }
+                    });
+                });
+
+                // 4. Логика разрешения конфликтов (PRIORITY: NODES > CONNECTIONS)
+                
+                // Если найдены НОДЫ
+                if (candidateNodes.length > 0) {
+                    // Если текущий режим - связи, сбрасываем всё
+                    if (this.state.selectionType === 'connection') {
+                        this.state.selection = [];
+                        this.state.selectionType = 'node';
+                    } else if (this.state.selectionType === 'node' && !isShift) {
+                        // Если режим нод, но не шифт - сбрасываем старое выделение
+                        this.state.selection = [];
+                    }
+                    this.state.selectionType = 'node';
+
+                    // Добавляем кандидатов
+                    candidateNodes.forEach(n => {
+                        if (!this.isSelected(n)) this.state.selection.push(n);
+                    });
+                } 
+                // Если нод нет, но есть СВЯЗИ
+                else if (candidateConns.length > 0) {
+                    // Если текущий режим - ноды, сбрасываем всё (даже если Shift)
+                    // Т.к. нельзя смешивать типы
+                    if (this.state.selectionType === 'node') {
+                        this.state.selection = [];
+                        this.state.selectionType = 'connection';
+                    } else if (this.state.selectionType === 'connection' && !isShift) {
+                         this.state.selection = [];
+                    } else if (this.state.selectionType === 'none') {
+                        this.state.selectionType = 'connection';
+                    }
+
+                    // Добавляем кандидатов
+                    candidateConns.forEach(cand => {
+                        // Проверка на уникальность для связей
+                        const exists = this.state.selection.some(s => s.output === cand.output);
+                        if (!exists) this.state.selection.push(cand);
+                    });
+                }
+                // Если ничего не нашли и не зажат Shift -> сброс
+                else if (!isShift) {
+                    this.state.selection = [];
+                    this.state.selectionType = 'none';
+                }
+
+                this.updateUI();
             }
 
             // --- HIT TESTING ---
@@ -928,11 +1147,12 @@
                             const target = this.data.flowchart.nodes.find(n => n.sid === out.cnSID);
                             if (target) {
                                 const pStart = this.getOutputPos(node, i);
-                                
-                                // ИЗМЕНЕНИЕ: Используем правильную точку входа для проверки наведения
                                 const pEnd = this.getNodeInputPos(target);
                                 
-                                if (Utils.isPointNearBezier(mx, my, pStart, pEnd, 5)) return { output: out };
+                                // Возвращаем и output, и исходную ноду (sourceNode)
+                                if (Utils.isPointNearBezier(mx, my, pStart, pEnd, 5)) {
+                                    return { output: out, sourceNode: node };
+                                }
                             }
                         }
                     }
@@ -1015,22 +1235,68 @@
                 return this.state.selection.includes(node);
             }
 
+            // Проверка, выделена ли конкретная связь (по объекту output)
+            isSelectedConnection(output) {
+                if (this.state.selectionType !== 'connection') return false;
+                return this.state.selection.some(item => item.output === output);
+            }
+
             // Обновление панели свойств (упрощенно)
             updateUI() {
                 const count = this.state.selection.length;
                 const panel = document.getElementById('properties-panel');
                 
+                // Ссылки на кнопки тулбара для управления их состоянием
+                const btnDel = document.getElementById('tool-del-node');
+                const btnAddOut = document.getElementById('tool-add-out');
+                const btnEnable = document.getElementById('tool-enable');
+                const btnStart = document.getElementById('tool-start');
+                const btnDelOut = document.getElementById('tool-del-out');
+
                 if (count === 0) {
+                    // 1. Ничего не выделено
                     panel.innerHTML = '<div class="prop-group"><h3>No Selection</h3></div>';
-                    // Обновляем тулбар
-                    document.getElementById('tool-del-node').disabled = true;
-                    // ... остальные кнопки ...
-                } else if (count === 1) {
-                    this.generateProperties(this.state.selection[0]);
-                    document.getElementById('tool-del-node').disabled = false;
-                } else {
-                    panel.innerHTML = `<div class="prop-group"><h3>Multiple Selection (${count} items)</h3><p style="color:#aaa">Properties editing is disabled for multiple items.</p></div>`;
-                    document.getElementById('tool-del-node').disabled = false;
+                    btnDel.disabled = true;
+                    btnAddOut.disabled = true;
+                    btnEnable.disabled = true;
+                    btnStart.disabled = true;
+                    btnDelOut.disabled = true;
+                } 
+                else if (this.state.selectionType === 'connection') {
+                    // 2. Выделены СВЯЗИ
+                    const title = count === 1 ? 'Connection Selected' : `Selection (${count} connections)`;
+                    panel.innerHTML = `<div class="prop-group"><h3>${title}</h3><p style="color:#aaa">Press Delete to remove connection.</p></div>`;
+                    
+                    btnDel.disabled = false; // Удаление разрешено
+                    
+                    // Отключаем кнопки, специфичные для нод
+                    btnAddOut.disabled = true;
+                    btnEnable.disabled = true;
+                    btnStart.disabled = true;
+                    btnDelOut.disabled = true;
+                } 
+                else if (this.state.selectionType === 'node') {
+                    // 3. Выделены НОДЫ
+                    btnDel.disabled = false;
+
+                    if (count === 1) {
+                        // Одиночное выделение ноды - показываем свойства
+                        this.generateProperties(this.state.selection[0]);
+                        
+                        // Активируем кнопки управления нодой
+                        btnAddOut.disabled = false;
+                        btnEnable.disabled = false;
+                        btnStart.disabled = false;
+                    } else {
+                        // Множественное выделение нод
+                        panel.innerHTML = `<div class="prop-group"><h3>Multiple Selection (${count} items)</h3><p style="color:#aaa">Properties editing is disabled for multiple items.</p></div>`;
+                        
+                        // Отключаем специфичные действия, оставляем только удаление
+                        btnAddOut.disabled = true;
+                        btnEnable.disabled = true; // При желании можно реализовать массовое вкл/выкл позже
+                        btnStart.disabled = true;
+                        btnDelOut.disabled = true;
+                    }
                 }
             }
 
@@ -1103,18 +1369,28 @@
             }
 
             // Удаление всех выделенных нод
-            deleteSelectedNodes() {
+            deleteSelection() {
                 if (this.state.selection.length === 0) return;
 
-                // Создаем копию массива, так как мы будем модифицировать исходные данные
-                const nodesToDelete = [...this.state.selection];
+                // УДАЛЕНИЕ НОД
+                if (this.state.selectionType === 'node') {
+                    const nodesToDelete = [...this.state.selection];
+                    nodesToDelete.forEach(node => this._deleteNodeInternal(node));
+                    this.selectSingle(null);
+                    this.state.selectionType = 'none';
+                } 
+                // УДАЛЕНИЕ СВЯЗЕЙ
+                else if (this.state.selectionType === 'connection') {
+                    // selection содержит объекты { output, sourceNode }
+                    this.state.selection.forEach(item => {
+                        if (item.output) {
+                            item.output.cnSID = null; // Разрываем связь
+                        }
+                    });
+                    this.state.selection = [];
+                    this.state.selectionType = 'none';
+                }
 
-                nodesToDelete.forEach(node => {
-                    this._deleteNodeInternal(node);
-                });
-
-                // Сбрасываем выделение и перерисовываем
-                this.selectSingle(null);
                 this.render();
             }
 
@@ -1371,10 +1647,21 @@
                 let color = CONFIG.colors.connection;
                 let width = 2;
                 
-                if (this.state.hover.connection && this.state.hover.connection.output === output) {
-                    color = CONFIG.colors.connectionHover; width = 4;
-                } else if (output.default) {
-                    color = CONFIG.colors.connectionDefault; width = 3;
+                // ЛОГИКА ЦВЕТОВ
+                // 1. Выделение (самый высокий приоритет)
+                if (this.isSelectedConnection(output)) {
+                    color = CONFIG.colors.selection; // #0078d4
+                    width = 4;
+                } 
+                // 2. Наведение (Hover) - только если не выделено (или можно поверх)
+                else if (this.state.hover.connection && this.state.hover.connection.output === output) {
+                    color = CONFIG.colors.connectionHover; 
+                    width = 4;
+                } 
+                // 3. Дефолтная
+                else if (output.default) {
+                    color = CONFIG.colors.connectionDefault; 
+                    width = 3;
                 }
 
                 const cpOffset = Math.abs(end.x - start.x) * 0.5;
@@ -1666,7 +1953,7 @@
                     const deleteText = count > 1 ? `Delete ${count} nodes` : 'Delete node';
 
                     items.push({ txt: 'Copy', fn: () => this.copyNode() }); // Копируем всё выделение
-                    items.push({ txt: deleteText, fn: () => this.deleteSelectedNodes() }); // Удаляем всё выделение
+                    items.push({ txt: deleteText, fn: () => this.deleteSelection() }); // Удаляем всё выделение
                     items.push({ txt: '----------------', fn: () => {} });
                     
                     // Действия ниже применяем только к той ноде, над которой курсор (даже если выделено много)
@@ -1753,10 +2040,26 @@
                 });
             }
 
-            load(json, ui) {
+            load(json, ui, filename = null) {
                 this.data.flowchart = json;
                 this.data.ui = ui;
                 this.view.zoom = ui.flowchart?.z || 1;
+                
+                // --- ЛОГИКА ИМЕНИ ---
+                // 1. Если передано имя файла (при импорте), используем его как базу, если в JSON нет имени
+                if (filename) {
+                    // Убираем расширение
+                    const nameFromHeader = filename.replace(/\.(json|uistate|miniflow)*$/gi, '');
+                    if (!json.name) json.name = nameFromHeader;
+                }
+                
+                // 2. Если имени все еще нет, ставим дефолт
+                if (!json.name) json.name = 'flowchart';
+
+                // 3. Обновляем UI
+                document.getElementById('filename-display').textContent = json.name;
+                // ---------------------
+
                 document.getElementById('zoom-level').textContent = Math.round(this.view.zoom * 100) + '%';
                 
                 // Center View
@@ -1973,8 +2276,13 @@
                 this._miniFlowAutoLayout(c3Data.nodes, sidMap.get(miniJson.root));
 
                 // Загрузка в редактор
-                this.load(c3Data, uiData);
-                document.getElementById('filename-display').textContent = "Imported MiniFlow";
+                // Передаем имя, сформированное из MiniFlow name (если есть) или дефолтное
+                const importedName = c3Data.name || "Imported_MiniFlow";
+                c3Data.name = importedName; 
+                
+                this.load(c3Data, uiData); // filename аргумент здесь не обязателен, т.к. мы уже задали c3Data.name
+                // Удаляем старую строку обновления DOM, так как load теперь делает это сам
+                // document.getElementById('filename-display').textContent = ... (УДАЛИТЬ ЭТУ СТРОКУ)
                 document.getElementById('status-bar').textContent = `Imported ${c3Data.nodes.length} nodes from MiniFlow`;
             }
 
@@ -2064,7 +2372,6 @@
         
         fileInputC3.onchange = async (e) => {
             const files = Array.from(e.target.files);
-            // Ищем пару файлов .json и .uistate.json
             const jFile = files.find(f => f.name.endsWith('.json') && !f.name.endsWith('.uistate.json'));
             const uFile = files.find(f => f.name.endsWith('.uistate.json'));
             
@@ -2072,14 +2379,19 @@
                 try {
                     const jData = JSON.parse(await jFile.text());
                     const uData = JSON.parse(await uFile.text());
-                    app.load(jData, uData);
-                    document.getElementById('filename-display').textContent = jFile.name;
+                    
+                    // ПЕРЕДАЕМ jFile.name третьим аргументом
+                    app.load(jData, uData, jFile.name);
+                    
+                    // Строку ниже можно удалить, так как load() теперь обновляет display
+                    // document.getElementById('filename-display').textContent = jFile.name;
+                    
                     document.getElementById('status-bar').textContent = `${jData.nodes.length} nodes loaded`;
                 } catch(err) { alert("Error parsing JSON: " + err.message); }
             } else {
                 alert("Please select both .json and .uistate.json files");
             }
-            e.target.value = ''; // Reset input to allow re-selection
+            e.target.value = ''; 
         };
 
         // 3. MiniFlow Import Logic
@@ -2176,7 +2488,7 @@
         toolAction('tool-add-out', () => document.getElementById('prop-add-out').click());
         toolAction('tool-enable', () => { if(app.state.selection.node) { app.state.selection.node.e = !app.state.selection.node.e; app.generateProperties(app.state.selection.node); app.render(); }});
         toolAction('tool-start', () => { if(app.state.selection.node) { app.data.flowchart.nodes.forEach(n=>n.s=false); app.state.selection.node.s=true; app.generateProperties(app.state.selection.node); app.render(); }});
-        toolAction('tool-del-node', () => app.deleteSelectedNodes());
+        toolAction('tool-del-node', () => app.deleteSelection());
     </script>
 </body>
 </html>
