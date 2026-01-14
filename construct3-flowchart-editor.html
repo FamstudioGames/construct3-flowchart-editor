@@ -320,14 +320,15 @@
                 text: '#ffffff',
                 textDim: '#888888'
             },
-            // ... остальное без изменений
             dims: {
-                nodeW: 420,
-                headerH: 30,
-                rowH: 24,
-                dotRadius: 5,
+                nodeW: 420,       // Дефолтная ширина
+                headerH: 32,      
+                rowH: 30,         
+                footerH: 30,      
+                dotRadius: 6,
                 borderRadius: 6,
-                gridSize: 500
+                gridSize: 500,
+                resizeMargin: 8   // <--- Ширина зоны захвата для ресайза (px)
             },
             zoom: { min: 0.05, max: 2, stepIn: 1.1, stepOut: 0.9 },
             clickThreshold: 50
@@ -444,6 +445,17 @@
 
                 if (type === 'down') {
                     if (this.state.mode === 'edit') {
+                        // 1. Сначала проверяем Ресайз (приоритет над перетаскиванием)
+                        const resizeHit = this.hitTestResize(mx, my);
+                        if (resizeHit) {
+                            this.state.resizing = true;
+                            this.state.resizeTarget = resizeHit.node;
+                            this.state.resizeDir = resizeHit.dir;
+                            this.state.lastMouse = { x: e.clientX, y: e.clientY };
+                            return; // Прерываем, чтобы не начать драг ноды
+                        }
+
+                        // 2. Обычная логика (Связи, Выделение)
                         const hitNode = this.hitTestNode(mx, my);
                         const hitOut = hitNode ? this.hitTestOutput(hitNode, mx, my) : null;
 
@@ -457,40 +469,83 @@
                         }
                         this.render();
                     }
-                    if (!this.state.dragNode && !this.state.connectionStart) {
+                    
+                    // Pan (если ничего не зацепили)
+                    if (!this.state.dragNode && !this.state.connectionStart && !this.state.resizing) {
                         this.state.dragging = true;
                     }
                     this.state.lastMouse = { x: e.clientX, y: e.clientY };
                 } 
                 else if (type === 'move') {
-                    if (this.state.mode === 'edit') {
-                        this.state.hover.node = this.hitTestNode(mx, my);
-                        this.state.hover.output = this.state.hover.node ? this.hitTestOutput(this.state.hover.node, mx, my) : null;
-                        this.state.hover.connection = (!this.state.hover.node) ? this.hitTestConnection(mx, my) : null;
+                    // А. Режим РЕСАЙЗА
+                    if (this.state.resizing && this.state.resizeTarget) {
+                        const dx = (e.clientX - this.state.lastMouse.x) / this.view.zoom;
+                        const dy = (e.clientY - this.state.lastMouse.y) / this.view.zoom;
+                        
+                        const node = this.state.resizeTarget;
+                        const minSize = this.getMinNodeSize(node);
+
+                        if (this.state.resizeDir === 'w') {
+                            node.w = Math.max(minSize.w, node.w + dx);
+                            this.canvas.style.cursor = 'ew-resize';
+                        } else if (this.state.resizeDir === 'h') {
+                            node.h = Math.max(minSize.h, node.h + dy);
+                            this.canvas.style.cursor = 'ns-resize';
+                        }
+                        
+                        this.state.lastMouse = { x: e.clientX, y: e.clientY };
+                        this.render();
+                        return;
                     }
 
+                    // Б. Обычный режим (Hover эффекты курсора)
+                    if (this.state.mode === 'edit' && !this.state.dragging && !this.state.dragNode && !this.state.connectionStart) {
+                        const resizeHit = this.hitTestResize(mx, my);
+                        if (resizeHit) {
+                            this.canvas.style.cursor = resizeHit.dir === 'w' ? 'ew-resize' : 'ns-resize';
+                        } else {
+                            // Проверка наведения на ноду (grab) или пустоту (default)
+                            const hitNode = this.hitTestNode(mx, my);
+                            this.canvas.style.cursor = hitNode ? 'grab' : 'default';
+                            
+                            // Логика hover подсветки связей
+                            this.state.hover.node = hitNode;
+                            this.state.hover.output = hitNode ? this.hitTestOutput(hitNode, mx, my) : null;
+                            this.state.hover.connection = (!hitNode) ? this.hitTestConnection(mx, my) : null;
+                        }
+                    }
+
+                    // В. Pan (перемещение холста)
                     if (this.state.dragging) {
                         this.view.panX += e.clientX - this.state.lastMouse.x;
                         this.view.panY += e.clientY - this.state.lastMouse.y;
-                    } else if (this.state.dragNode) {
+                        this.canvas.style.cursor = 'grabbing';
+                    } 
+                    // Г. Drag Node (перемещение ноды)
+                    else if (this.state.dragNode) {
                         const wp = Utils.screenToWorld(mx, my, this.view.panX, this.view.panY, this.view.zoom);
-                        
-                        // --- ИСПРАВЛЕНИЕ: Блокировка отрицательных координат ---
                         let newX = wp.x - this.state.dragNode.w / 2;
                         let newY = wp.y - 15;
-                        
-                        // Не даем уйти влево и вверх за 0
                         if (newX < 0) newX = 0;
                         if (newY < 0) newY = 0;
-
                         this.state.dragNode.x = newX;
                         this.state.dragNode.y = newY;
+                        this.canvas.style.cursor = 'grabbing';
                     }
 
                     this.state.lastMouse = { x: e.clientX, y: e.clientY };
                     this.render();
                 } 
                 else if (type === 'up') {
+                    // Сброс ресайза
+                    if (this.state.resizing) {
+                        this.state.resizing = false;
+                        this.state.resizeTarget = null;
+                        this.state.resizeDir = null;
+                        this.canvas.style.cursor = 'default';
+                    }
+
+                    // Завершение соединения
                     if (this.state.connectionStart) {
                         let target = this.state.hover.node || this.findClosestNode(mx, my);
                         if (target && target !== this.state.connectionStart.node) {
@@ -499,6 +554,7 @@
                         this.state.connectionStart = null;
                         this.render();
                     }
+                    
                     this.state.dragging = false;
                     this.state.dragNode = null;
                 }
@@ -513,6 +569,46 @@
                 for (let i = this.data.flowchart.nodes.length - 1; i >= 0; i--) {
                     const n = this.data.flowchart.nodes[i];
                     if (Utils.isPointInRect(wp.x, wp.y, n.x, n.y, n.w, n.h)) return n;
+                }
+                return null;
+            }
+
+            // Проверка попадания в границы ноды для ресайза
+            // Возвращает объект { node, dir: 'w' | 'h' } или null
+            hitTestResize(mx, my) {
+                if (!this.data.flowchart) return null;
+                
+                const margin = CONFIG.dims.resizeMargin; // Зона захвата в пикселях экрана
+                
+                // Проходим по нодам сверху вниз (обратный порядок отрисовки не важен для границ, но лучше брать верхнюю)
+                // Используем обратный цикл, чтобы поймать верхнюю ноду, если они перекрываются
+                for (let i = this.data.flowchart.nodes.length - 1; i >= 0; i--) {
+                    const n = this.data.flowchart.nodes[i];
+                    
+                    // Переводим координаты ноды в экранные
+                    const screenPos = Utils.worldToScreen(n.x, n.y, this.view.panX, this.view.panY, this.view.zoom);
+                    const screenW = n.w * this.view.zoom;
+                    const screenH = n.h * this.view.zoom;
+
+                    // Границы ноды на экране
+                    const left = screenPos.x;
+                    const right = screenPos.x + screenW;
+                    const top = screenPos.y;
+                    const bottom = screenPos.y + screenH;
+
+                    // 1. Проверка ПРАВОЙ границы (изменение ширины)
+                    // Курсор должен быть в пределах высоты ноды и рядом с правой гранью
+                    if (my >= top && my <= bottom && 
+                        mx >= right - margin && mx <= right + margin) {
+                        return { node: n, dir: 'w' };
+                    }
+
+                    // 2. Проверка НИЖНЕЙ границы (изменение высоты)
+                    // Курсор должен быть в пределах ширины ноды и рядом с нижней гранью
+                    if (mx >= left && mx <= right && 
+                        my >= bottom - margin && my <= bottom + margin) {
+                        return { node: n, dir: 'h' };
+                    }
                 }
                 return null;
             }
@@ -541,7 +637,10 @@
                             const target = this.data.flowchart.nodes.find(n => n.sid === out.cnSID);
                             if (target) {
                                 const pStart = this.getOutputPos(node, i);
-                                const pEnd = Utils.worldToScreen(target.x, target.y + target.h / 2, this.view.panX, this.view.panY, this.view.zoom);
+                                
+                                // ИЗМЕНЕНИЕ: Используем правильную точку входа для проверки наведения
+                                const pEnd = this.getNodeInputPos(target);
+                                
                                 if (Utils.isPointNearBezier(mx, my, pStart, pEnd, 5)) return { output: out };
                             }
                         }
@@ -561,22 +660,22 @@
             }
 
             getOutputPos(node, idx) {
-                // Берем размеры строго из конфигурации, как при отрисовке
-                const hh = CONFIG.dims.headerH; // 30
-                const rh = CONFIG.dims.rowH;    // 24
-                
-                // Рассчитываем отступ заголовка (логика совпадает с drawNode)
-                // Если есть тег (node.t), отступ 20, иначе 5
-                const topPadding = node.t ? 20 : 5;
+                const hh = CONFIG.dims.headerH;
+                const rh = CONFIG.dims.rowH;
+                // В новой версии теги внизу, поэтому отступ сверху фиксированный
+                const topPadding = 5; 
 
-                // Рассчитываем вертикальную позицию центра строки в Мировых координатах
-                // Y ноды + Высота заголовка + Отступ + (Индекс * Высота строки) + Половина строки
                 const worldY = node.y + hh + topPadding + (idx * rh) + (rh / 2);
-                
-                // X - это правый край ноды
                 const worldX = node.x + node.w;
 
-                // Конвертируем в экранные координаты с учетом зума и панорамы
+                return Utils.worldToScreen(worldX, worldY, this.view.panX, this.view.panY, this.view.zoom);
+            }
+
+            getNodeInputPos(node) {
+                // Вход всегда по центру текущей высоты ноды
+                const worldY = node.y + (node.h / 2);
+                const worldX = node.x;
+
                 return Utils.worldToScreen(worldX, worldY, this.view.panX, this.view.panY, this.view.zoom);
             }
 
@@ -663,6 +762,22 @@
                 }
             }
 
+            getMinNodeSize(node) {
+                // Минимальная ширина (заголовок должен влезать хотя бы частично)
+                const minW = 200; 
+
+                // Минимальная высота: Шапка + Выходы + Футер + Отступы
+                const hh = CONFIG.dims.headerH;
+                const rh = CONFIG.dims.rowH;
+                const fh = CONFIG.dims.footerH;
+                const outputsCount = node.outputs ? node.outputs.length : 0;
+                
+                // 10px padding
+                const minH = hh + (outputsCount * rh) + fh + 10;
+
+                return { w: minW, h: minH };
+            }
+
             // --- RENDERING ---
 
             render() {
@@ -684,21 +799,20 @@
                 });
 
                 // 2.1 Активная связь (drag)
-                if (this.state.connectionStart) {
+                 if (this.state.connectionStart) {
                     const start = this.getOutputPos(this.state.connectionStart.node, 
                         this.state.connectionStart.node.outputs.indexOf(this.state.connectionStart.output));
-                    let end = this.state.lastMouse;
-                    // Корректируем end, чтобы линия рисовалась относительно канваса (lastMouse в screen coords)
-                    // Но нам нужно конвертировать это правильно, если lastMouse берется из clientX
-                    // В handleInput мы обновляем lastMouse. Для отрисовки линии просто берем координаты мыши относительна канваса:
+                    
+                    // Координаты мыши
                     const rect = this.canvas.getBoundingClientRect();
-                    end = { 
+                    let end = { 
                         x: this.state.lastMouse.x - rect.left, 
                         y: this.state.lastMouse.y - rect.top 
                     };
                     
                     if (this.state.hover.node) {
-                        end = Utils.worldToScreen(this.state.hover.node.x, this.state.hover.node.y + this.state.hover.node.h/2, this.view.panX, this.view.panY, this.view.zoom);
+                        // ИЗМЕНЕНИЕ: Магнитизм к правильному центру визуальной ноды
+                        end = this.getNodeInputPos(this.state.hover.node);
                     }
 
                     ctx.beginPath();
@@ -776,9 +890,11 @@
                 ctx.restore();
             }
 
-            drawConnection(n1, n1Idx, output, oIdx, n2) {
+             drawConnection(n1, n1Idx, output, oIdx, n2) {
                 const start = this.getOutputPos(n1, oIdx);
-                const end = Utils.worldToScreen(n2.x, n2.y + n2.h/2, this.view.panX, this.view.panY, this.view.zoom);
+                
+                // Используем вычисляемый центр визуальной высоты целевой ноды
+                const end = this.getNodeInputPos(n2);
                 
                 let color = CONFIG.colors.connection;
                 let width = 2;
@@ -805,74 +921,81 @@
             }
 
             drawNode(node, idx) {
-                const pos = Utils.worldToScreen(node.x, node.y, this.view.panX, this.view.panY, this.view.zoom);
-                const w = node.w * this.view.zoom;
-                const h = node.h * this.view.zoom;
-                const rad = CONFIG.dims.borderRadius * this.view.zoom;
-                const hh = CONFIG.dims.headerH * this.view.zoom;
+                const zoom = this.view.zoom;
+                
+                // --- РАЗМЕРЫ (Строго из JSON/Модели) ---
+                const w = node.w * zoom;
+                const h = node.h * zoom; // <--- ТЕПЕРЬ СТРОГО ИСПОЛЬЗУЕМ ВЫСОТУ НОДЫ
+                
+                const hh = CONFIG.dims.headerH * zoom; 
+                const fh = CONFIG.dims.footerH * zoom; 
+                const rad = CONFIG.dims.borderRadius * zoom;
 
-                // 1. Цвет обводки (из UI State или черный)
+                // Позиция на экране
+                const pos = Utils.worldToScreen(node.x, node.y, this.view.panX, this.view.panY, zoom);
+
+                // Цвета
                 let borderColor = CONFIG.colors.borderDefault;
                 if (this.data.ui.nodes[idx]?.node?.color) {
                     const c = this.data.ui.nodes[idx].node.color;
                     borderColor = `rgb(${c[0]*255}, ${c[1]*255}, ${c[2]*255})`;
                 }
 
-                // 2. Цвета для заголовка и текста
-                // Фон заголовка: Зеленый для старта, Темно-синий для остальных
                 const headerBgColor = node.s ? CONFIG.colors.headerStart : CONFIG.colors.header;
-                
-                // Цвет имени выхода: Зеленый для старта, Светло-синий для остальных (для читаемости)
                 const outputNameColor = node.s ? CONFIG.colors.headerStart : CONFIG.colors.outputNameDefault;
-                
+
                 this.ctx.save();
 
-                // Тело ноды
+                // 1. ТЕЛО НОДЫ (ФОН) - Рисуем по реальным размерам w/h
                 this.ctx.beginPath();
                 this.ctx.roundRect(pos.x, pos.y, w, h, rad);
                 this.ctx.fillStyle = CONFIG.colors.bgNode;
                 this.ctx.fill();
 
-                // Шапка (Header Background)
+                // 2. ЗАГОЛОВОК
                 this.ctx.save();
-                this.ctx.clip();
-                this.ctx.fillStyle = headerBgColor; // Используем темный цвет для фона
+                this.ctx.clip(); 
+                this.ctx.fillStyle = headerBgColor;
                 this.ctx.fillRect(pos.x, pos.y, w, hh);
                 this.ctx.restore();
 
-                // Обводка
+                // 3. ОБВОДКА
                 this.ctx.lineWidth = (node === this.state.selection.node) ? 3 : 1;
                 this.ctx.strokeStyle = (node === this.state.selection.node) ? CONFIG.colors.selection : borderColor;
                 if (this.state.hover.node === node && this.state.connectionStart) this.ctx.strokeStyle = CONFIG.colors.connectionHover;
                 this.ctx.stroke();
 
-                // Текст заголовка (Caption)
+                // 4. ТЕКСТ ЗАГОЛОВКА
                 this.ctx.textAlign = 'left'; 
                 this.ctx.fillStyle = CONFIG.colors.text;
-                this.ctx.font = `bold ${Math.max(10, 13 * this.view.zoom)}px sans-serif`;
+                this.ctx.font = `bold ${Math.max(10, 13 * zoom)}px sans-serif`;
                 this.ctx.textBaseline = 'middle';
-                this.ctx.fillText(node.c || 'Node', pos.x + 10*this.view.zoom, pos.y + hh/2, w - 20);
+                this.ctx.fillText(node.c || 'Node', pos.x + 10*zoom, pos.y + hh/2, w - 20);
 
-                // Теги
-                if (node.t) {
-                    this.ctx.fillStyle = CONFIG.colors.textDim;
-                    this.ctx.font = `italic ${Math.max(9, 11 * this.view.zoom)}px sans-serif`;
-                    this.ctx.fillText(node.t, pos.x + 10*this.view.zoom, pos.y + hh + 12*this.view.zoom);
-                }
-
-                // Входящая точка (Input Dot)
+                // 5. ВХОДЯЩАЯ ТОЧКА (Input Dot)
+                // Рисуем строго посередине текущей высоты
                 this.ctx.beginPath();
-                this.ctx.arc(pos.x, pos.y + h/2, 5*this.view.zoom, -Math.PI/2, Math.PI/2);
+                this.ctx.arc(pos.x, pos.y + h/2, 5*zoom, -Math.PI/2, Math.PI/2);
                 this.ctx.fillStyle = '#555';
                 this.ctx.fill();
 
-                // Выходы (Outputs) - передаем цвет текста
+                // 6. ВЫХОДЫ (Outputs)
                 if (node.outputs) {
-                    const startY = hh + (node.t ? 20 * this.view.zoom : 5 * this.view.zoom);
+                    const startY = hh + (5 * zoom); 
                     node.outputs.forEach((out, i) => this.drawOutput(node, out, i, pos, startY, outputNameColor));
                 }
 
-                // Затемнение если выключено
+                // 7. ТЕГИ (FOOTER)
+                // Рисуем внизу ноды, отступая на высоту футера
+                if (node.t) {
+                    this.ctx.textAlign = 'left';
+                    this.ctx.fillStyle = CONFIG.colors.textDim;
+                    this.ctx.font = `italic ${Math.max(9, 11 * zoom)}px sans-serif`;
+                    // Привязка к нижнему краю: y + h - половина футера
+                    this.ctx.fillText(node.t, pos.x + 10*zoom, pos.y + h - (fh/2) + 2);
+                }
+
+                // 8. ЗАТЕМНЕНИЕ (Disabled)
                 if (!node.e) {
                     this.ctx.fillStyle = 'rgba(0,0,0,0.5)';
                     this.ctx.fill();
@@ -886,14 +1009,13 @@
                 const yOff = startY + (idx * rh);
                 const textY = pos.y + yOff + rh/2;
 
-                // --- TEXT RENDER (Right Aligned) ---
+                // Текст справа
                 this.ctx.textAlign = 'right';
                 
-                // Начальная точка X (справа налево)
                 let currentX = pos.x + (node.w * this.view.zoom) - (15 * this.view.zoom);
                 const fontBaseSize = Math.max(9, 12 * this.view.zoom);
                 
-                // 1. (Default) - Зеленый
+                // (Default)
                 if (out.default) {
                     this.ctx.font = `bold ${Math.max(8, 10 * this.view.zoom)}px sans-serif`;
                     this.ctx.fillStyle = '#4caf50';
@@ -902,7 +1024,7 @@
                     currentX -= this.ctx.measureText(defText).width;
                 }
 
-                // 2. Value - Серый
+                // Value
                 if (out.value) {
                     this.ctx.font = `${fontBaseSize}px sans-serif`;
                     this.ctx.fillStyle = '#ccc';
@@ -911,12 +1033,12 @@
                     currentX -= this.ctx.measureText(valText).width;
                 }
 
-                // 3. Name - Цвет переданный аргументом (Светло-синий или Зеленый)
+                // Name
                 this.ctx.font = `bold ${fontBaseSize}px sans-serif`;
                 this.ctx.fillStyle = nameColor; 
                 this.ctx.fillText(out.name, currentX, textY);
 
-                // Connector Dot
+                // Точка коннектора
                 const cx = pos.x + node.w * this.view.zoom;
                 const cy = pos.y + yOff + rh/2;
                 
@@ -988,11 +1110,13 @@
                 // --- FIXED: SYNC LOGIC FOR ADD/DELETE OUTPUT ---
                 const nodeIdx = this.data.flowchart.nodes.indexOf(node);
 
+                // Внутри generateProperties
                 document.getElementById('prop-add-out').onclick = () => {
-                    // 1. Logic add
                     node.outputs.push({ sid: Utils.uuid(), name: "Option", value:"", enable:true, default:false });
-                    node.h += 30; 
-                    // 2. UI State Sync
+                    
+                    // Увеличиваем высоту ноды на высоту строки (30px)
+                    node.h += CONFIG.dims.rowH; 
+                    
                     if (this.data.ui.nodes[nodeIdx]) {
                         this.data.ui.nodes[nodeIdx].outputs.push({ 
                             color: [0,0,0,1], 
@@ -1005,10 +1129,12 @@
 
                 p.querySelectorAll('[data-del-out]').forEach(b => b.onclick = e => {
                     const outIdx = parseInt(e.target.dataset.delOut);
-                    // 1. Logic remove
                     node.outputs.splice(outIdx, 1);
-                    node.h -= 30;
-                    // 2. UI State Sync
+                    
+                    // Уменьшаем высоту, но проверяем минимум
+                    const minSize = this.getMinNodeSize(node);
+                    node.h = Math.max(minSize.h, node.h - CONFIG.dims.rowH);
+
                     if (this.data.ui.nodes[nodeIdx] && this.data.ui.nodes[nodeIdx].outputs) {
                         this.data.ui.nodes[nodeIdx].outputs.splice(outIdx, 1);
                     }
