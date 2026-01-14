@@ -150,8 +150,8 @@
             overflow: hidden;
         }
         
-        canvas { display: block; cursor: grab; }
-        canvas:active { cursor: grabbing; }
+        canvas { display: block; cursor: default; }
+        canvas:active { cursor: default; } /* Управление переходит полностью к JS */
         canvas.editing { cursor: default; }
 
         /* --- PROPERTIES PANEL --- */
@@ -318,7 +318,11 @@
                 bgNode: '#2b2b2b',
                 grid: '#3a3a3a',
                 text: '#ffffff',
-                textDim: '#888888'
+                textDim: '#888888',
+
+                // Цвет рамки выделения
+                marqueeStroke: '#0078d4',
+                marqueeFill: 'rgba(0, 120, 212, 0.1)'
             },
             dims: {
                 nodeW: 420,
@@ -362,31 +366,35 @@
                 this.canvas = document.getElementById(canvasId);
                 this.ctx = this.canvas.getContext('2d');
                 
-                // Data
                 this.data = { flowchart: null, ui: null, original: null };
-                
-                // Viewport State
                 this.view = { zoom: 1, panX: 0, panY: 0 };
                 
-                // Interaction State
                 this.state = {
-                    mode: 'view', // 'view' or 'edit'
+                    mode: 'view',
                     dragging: false,
                     lastMouse: { x: 0, y: 0 },
-                    selection: { node: null, output: null },
-                    dragNode: null,
+                    
+                    // Множественное выделение
+                    selection: [], // Массив выделенных нод
+                    selectedOutput: null, // Для редактирования свойств конкретного аутпута
+                    
+                    dragNode: null, // (Устарело, теперь используем selection для драга)
+                    dragOffset: null, // Смещение курсора относительно якорной ноды
+                    
                     connectionStart: null,
                     hover: { node: null, output: null, connection: null },
-
-                    // Смещение для драга и флаги ресайза
-                    dragOffset: null,
+                    
                     resizing: false,
                     resizeTarget: null,
-                    resizeDir: null
+                    resizeDir: null,
+                    
+                    // Marquee (Рамка)
+                    marqueeStart: null, // {x, y} в экранных координатах
+                    marqueeCurrent: null,
+                    isSpacePressed: false // Флаг для пробела
                 };
-                // Буфер обмена
+                
                 this.clipboard = null; 
-
                 this.init();
             }
 
@@ -404,11 +412,14 @@
 
             bindEvents() {
                 const c = this.canvas;
+                
+                // --- MOUSE INTERACTIONS ---
                 c.addEventListener('mousedown', e => this.handleInput('down', e));
                 c.addEventListener('mousemove', e => this.handleInput('move', e));
                 c.addEventListener('mouseup', e => this.handleInput('up', e));
                 c.addEventListener('mouseleave', () => { this.state.dragging = false; this.state.dragNode = null; });
                 
+                // --- ZOOM (TO CURSOR) ---
                 c.addEventListener('wheel', e => {
                     if (e.ctrlKey) {
                         e.preventDefault();
@@ -417,16 +428,15 @@
                         const mx = e.clientX - rect.left;
                         const my = e.clientY - rect.top;
 
-                        // 1. Получаем координаты мира ПОД курсором ДО зума
+                        // 1. Координаты мира под курсором ДО зума
                         const worldX = (mx - this.view.panX) / this.view.zoom;
                         const worldY = (my - this.view.panY) / this.view.zoom;
 
-                        // 2. Вычисляем новый зум
+                        // 2. Новый зум
                         const f = e.deltaY > 0 ? CONFIG.zoom.stepOut : CONFIG.zoom.stepIn;
                         const newZoom = Math.max(CONFIG.zoom.min, Math.min(CONFIG.zoom.max, this.view.zoom * f));
 
-                        // 3. Вычисляем новый Pan так, чтобы точка мира осталась под курсором
-                        // mx = worldX * newZoom + newPanX  =>  newPanX = mx - worldX * newZoom
+                        // 3. Новый Pan (чтобы точка мира осталась под курсором)
                         this.view.panX = mx - worldX * newZoom;
                         this.view.panY = my - worldY * newZoom;
                         this.view.zoom = newZoom;
@@ -436,12 +446,95 @@
                     }
                 });
 
+                // --- CONTEXT MENU ---
                 c.addEventListener('contextmenu', e => {
                     e.preventDefault();
                     if (this.state.mode === 'edit') this.showContextMenu(e);
                 });
 
                 document.addEventListener('click', () => document.getElementById('context-menu').classList.remove('active'));
+
+                // --- SYSTEM CLIPBOARD CLEAR ---
+                // Если пользователь копирует текст в инпуте, очищаем буфер нод, чтобы не вставить ноду вместо текста
+                document.addEventListener('copy', (e) => {
+                    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+                        this.clipboard = null;
+                    }
+                });
+
+                // --- KEYBOARD SHORTCUTS (DOWN) ---
+                document.addEventListener('keydown', e => {
+                    // 1. SPACE (PAN MODE)
+                    if (e.code === 'Space' && !e.repeat && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+                        this.state.isSpacePressed = true;
+                        this.canvas.style.cursor = 'grab';
+                        return; // Прерываем, чтобы пробел не триггерил скролл страницы
+                    }
+
+                    // Проверка фокуса в полях ввода (чтобы Delete не удалял ноды при редактировании текста)
+                    const targetTag = e.target.tagName;
+                    const isInputActive = targetTag === 'INPUT' || targetTag === 'TEXTAREA' || e.target.isContentEditable;
+
+                    // 2. DELETE
+                    if (e.code === 'Delete') {
+                        if (!isInputActive && this.state.mode === 'edit') {
+                            this.deleteSelectedNodes();
+                        }
+                    }
+
+                    // 3. BACKSPACE
+                    if (e.code === 'Backspace') {
+                        if (!isInputActive && this.state.mode === 'edit') {
+                            e.preventDefault(); // Блокируем "Назад" в браузере
+                            this.deleteSelectedNodes();
+                        }
+                    }
+
+                    // Для остальных хоткеев (Ctrl+...) выходим, если активен ввод текста
+                    if (isInputActive) return;
+
+                    const isCtrl = e.ctrlKey || e.metaKey;
+
+                    // 4. SAVE (Ctrl+S)
+                    if (isCtrl && e.code === 'KeyS') {
+                        e.preventDefault(); 
+                        // Вызываем клик по кнопкам меню (так надежнее, чем вызывать глобальные функции)
+                        if (e.shiftKey) {
+                            document.getElementById('btn-save-as-stub').click();
+                        } else {
+                            // Если есть реальная кнопка Save (btn-save) или заглушка (btn-save-stub)
+                            const btn = document.getElementById('btn-export-c3') || document.getElementById('btn-save-stub');
+                            if(btn) btn.click();
+                        }
+                    }
+
+                    // 5. COPY (Ctrl+C)
+                    if (isCtrl && e.code === 'KeyC') {
+                        if (this.state.mode === 'edit' && this.state.selection.length > 0) {
+                            this.copyNode(); 
+                        }
+                    }
+
+                    // 6. PASTE (Ctrl+V)
+                    if (isCtrl && e.code === 'KeyV') {
+                        if (this.state.mode === 'edit' && this.clipboard) {
+                            // Вставляем в позицию курсора мыши (последнюю известную)
+                            const rect = this.canvas.getBoundingClientRect();
+                            const mx = this.state.lastMouse.x - rect.left;
+                            const my = this.state.lastMouse.y - rect.top;
+                            this.pasteNode(mx, my);
+                        }
+                    }
+                });
+
+                // --- KEYBOARD SHORTCUTS (UP) ---
+                document.addEventListener('keyup', e => {
+                    if (e.code === 'Space') {
+                        this.state.isSpacePressed = false;
+                        this.canvas.style.cursor = 'default';
+                        if (this.state.dragging) this.state.dragging = false; 
+                    }
+                });
             }
 
             // --- INPUT HANDLING ---
@@ -453,82 +546,138 @@
 
                 // --- 1. MOUSE DOWN ---
                 if (type === 'down') {
-                    if (this.state.mode === 'edit') {
-                        // Шаг 1: Приоритет на Output
-                        const hitNode = this.hitTestNode(mx, my);
-                        const hitOut = hitNode ? this.hitTestOutput(hitNode, mx, my) : null;
-
-                        if (hitNode && hitOut) {
-                            this.state.connectionStart = { node: hitNode, output: hitOut.output };
-                            this.state.lastMouse = { x: e.clientX, y: e.clientY }; 
-                            this.render();
-                            return; 
-                        }
-
-                        // Шаг 2: Ресайз
-                        const resizeHit = this.hitTestResize(mx, my);
-                        if (resizeHit) {
-                            this.state.resizing = true;
-                            this.state.resizeTarget = resizeHit.node;
-                            this.state.resizeDir = resizeHit.dir;
-                            this.state.lastMouse = { x: e.clientX, y: e.clientY };
-                            return; 
-                        }
-
-                        // Шаг 3: Перетаскивание Ноды / Выделение
-                        if (hitNode) {
-                            this.select(hitNode);
-                            this.state.dragNode = hitNode;
-                            
-                            // --- ИСПРАВЛЕНИЕ ЗАХВАТА ---
-                            // Вычисляем смещение между центром ноды и курсором в момент клика
-                            const wp = Utils.screenToWorld(mx, my, this.view.panX, this.view.panY, this.view.zoom);
-                            this.state.dragOffset = {
-                                x: hitNode.x - wp.x,
-                                y: hitNode.y - wp.y
-                            };
-                            
-                        } else {
-                            this.select(null);
-                        }
-                        this.render();
-                    }
-                    
-                    // Pan
-                    if (!this.state.dragNode && !this.state.connectionStart && !this.state.resizing) {
+                    // A. PAN (СКМ или Пробел + ЛКМ)
+                    // e.button === 1 (Колесо) ИЛИ (e.button === 0 (ЛКМ) И Пробел нажат)
+                    if (e.button === 1 || (e.button === 0 && this.state.isSpacePressed)) {
                         this.state.dragging = true;
+                        this.state.lastMouse = { x: e.clientX, y: e.clientY };
+                        this.canvas.style.cursor = 'grabbing';
+                        return; // Прерываем, чтобы не сработало выделение
+                    }
+
+                    // B. Контекстное меню (ПКМ) - просто прерываем, обработает событие 'contextmenu'
+                    if (e.button === 2) {
+                        return;
+                    }
+
+                    // C. ЛКМ (Основная логика)
+                    if (e.button === 0) {
+                        if (this.state.mode === 'edit') {
+                            // 1. Приоритет на Output (Создание связи)
+                            const hitNode = this.hitTestNode(mx, my);
+                            const hitOut = hitNode ? this.hitTestOutput(hitNode, mx, my) : null;
+
+                            if (hitNode && hitOut) {
+                                this.state.connectionStart = { node: hitNode, output: hitOut.output };
+                                this.state.lastMouse = { x: e.clientX, y: e.clientY }; 
+                                this.render();
+                                return; 
+                            }
+
+                            // 2. Ресайз
+                            const resizeHit = this.hitTestResize(mx, my);
+                            // Ресайзим, если кликнули по хендлу уже выделенной ноды, или если выделим её сейчас
+                            if (resizeHit) {
+                                // Если нода не была выделена - выделяем её одну
+                                if (!this.isSelected(resizeHit.node)) {
+                                    this.selectSingle(resizeHit.node);
+                                }
+                                
+                                this.state.resizing = true;
+                                this.state.resizeTarget = resizeHit.node;
+                                this.state.resizeDir = resizeHit.dir;
+                                this.state.lastMouse = { x: e.clientX, y: e.clientY };
+                                return; 
+                            }
+
+                            // 3. Выделение / Драг Нод
+                            if (hitNode) {
+                                const isShift = e.shiftKey;
+                                const alreadySelected = this.isSelected(hitNode);
+
+                                if (isShift) {
+                                    this.toggleSelection(hitNode);
+                                    // Драг возможен, если нода осталась выделенной
+                                    this.state.dragNode = this.isSelected(hitNode) ? hitNode : null;
+                                } else {
+                                    if (!alreadySelected) {
+                                        this.selectSingle(hitNode);
+                                    }
+                                    this.state.dragNode = hitNode;
+                                }
+
+                                const wp = Utils.screenToWorld(mx, my, this.view.panX, this.view.panY, this.view.zoom);
+                                this.state.dragStartWorld = { x: wp.x, y: wp.y }; // Якорь для группы
+                            } 
+                            else {
+                                // 4. Пустое место -> Marquee (если не пробел)
+                                if (!this.state.isSpacePressed) {
+                                    if (!e.shiftKey) this.selectSingle(null);
+                                    this.state.marqueeStart = { x: mx, y: my };
+                                    this.state.marqueeCurrent = { x: mx, y: my };
+                                }
+                            }
+                            this.render();
+                        }
                     }
                     this.state.lastMouse = { x: e.clientX, y: e.clientY };
                 } 
                 
                 // --- 2. MOUSE MOVE ---
                 else if (type === 'move') {
-                    // А. Тянем РЕСАЙЗ
-                    if (this.state.resizing && this.state.resizeTarget) {
-                        const dx = (e.clientX - this.state.lastMouse.x) / this.view.zoom;
-                        const dy = (e.clientY - this.state.lastMouse.y) / this.view.zoom;
-                        const node = this.state.resizeTarget;
-                        const minSize = this.getMinNodeSize(node);
-
-                        if (this.state.resizeDir === 'w') {
-                            const oldW = node.w;
-                            const newW = Math.max(minSize.w, oldW + dx);
-                            node.x += (newW - oldW) / 2;
-                            node.w = newW;
-                            this.canvas.style.cursor = 'ew-resize';
-                        } else if (this.state.resizeDir === 'h') {
-                            const oldH = node.h;
-                            const newH = Math.max(minSize.h, oldH + dy);
-                            node.y += (newH - oldH) / 2;
-                            node.h = newH;
-                            this.canvas.style.cursor = 'ns-resize';
-                        }
+                    // А. Pan (если активен флаг dragging)
+                    if (this.state.dragging) {
+                        this.view.panX += e.clientX - this.state.lastMouse.x;
+                        this.view.panY += e.clientY - this.state.lastMouse.y;
+                        this.canvas.style.cursor = 'grabbing'; // <-- Это работает, оставляем
                         this.state.lastMouse = { x: e.clientX, y: e.clientY };
                         this.render();
                         return;
                     }
 
-                    // Б. Тянем СВЯЗЬ
+                    // 2. ДОБАВИТЬ: Логика для View Mode (когда не перетаскиваем)
+                    if (this.state.mode === 'view') {
+                        if (this.state.isSpacePressed) {
+                            this.canvas.style.cursor = 'grab';
+                        } else {
+                            this.canvas.style.cursor = 'default';
+                        }
+                    }
+
+                    // Если просто водим мышью с зажатым пробелом (без клика) - курсор grab
+                    if (this.state.isSpacePressed && !this.state.dragging) {
+                        this.canvas.style.cursor = 'grab';
+                        this.state.lastMouse = { x: e.clientX, y: e.clientY };
+                        return;
+                    }
+
+                    // Б. Ресайз
+                    if (this.state.resizing && this.state.resizeTarget) {
+                        const dx = (e.clientX - this.state.lastMouse.x) / this.view.zoom;
+                        const dy = (e.clientY - this.state.lastMouse.y) / this.view.zoom;
+
+                        this.state.selection.forEach(node => {
+                            const minSize = this.getMinNodeSize(node);
+                            if (this.state.resizeDir === 'w') {
+                                const oldW = node.w;
+                                const newW = Math.max(minSize.w, oldW + dx);
+                                node.x += (newW - oldW) / 2;
+                                node.w = newW;
+                            } else if (this.state.resizeDir === 'h') {
+                                const oldH = node.h;
+                                const newH = Math.max(minSize.h, oldH + dy);
+                                node.y += (newH - oldH) / 2;
+                                node.h = newH;
+                            }
+                        });
+
+                        this.canvas.style.cursor = this.state.resizeDir === 'w' ? 'ew-resize' : 'ns-resize';
+                        this.state.lastMouse = { x: e.clientX, y: e.clientY };
+                        this.render();
+                        return;
+                    }
+
+                    // В. Тянем связь
                     if (this.state.connectionStart) {
                         const hitNode = this.hitTestNode(mx, my);
                         this.state.hover.node = (hitNode !== this.state.connectionStart.node) ? hitNode : null;
@@ -537,8 +686,33 @@
                         return;
                     }
 
-                    // В. Hover
-                    if (this.state.mode === 'edit' && !this.state.dragging && !this.state.dragNode) {
+                    // Г. Marquee
+                    if (this.state.marqueeStart) {
+                        this.state.marqueeCurrent = { x: mx, y: my };
+                        this.render();
+                        return;
+                    }
+
+                    // Д. Drag Nodes
+                    if (this.state.dragNode) {
+                        const wp = Utils.screenToWorld(mx, my, this.view.panX, this.view.panY, this.view.zoom);
+                        const dx = wp.x - this.state.dragStartWorld.x;
+                        const dy = wp.y - this.state.dragStartWorld.y;
+
+                        this.state.selection.forEach(node => {
+                            node.x += dx;
+                            node.y += dy;
+                        });
+
+                        this.state.dragStartWorld = { x: wp.x, y: wp.y };
+                        this.canvas.style.cursor = 'grabbing';
+                        this.state.lastMouse = { x: e.clientX, y: e.clientY };
+                        this.render();
+                        return;
+                    }
+
+                    // Е. Hover эффекты (без кнопок)
+                    if (this.state.mode === 'edit') {
                         const hitNode = this.hitTestNode(mx, my);
                         const hitOut = hitNode ? this.hitTestOutput(hitNode, mx, my) : null;
                         
@@ -548,58 +722,32 @@
 
                         if (hitOut) {
                             this.canvas.style.cursor = 'crosshair'; 
-                        } 
-                        else {
+                        } else if (this.isSelected(hitNode)) {
                             const resizeHit = this.hitTestResize(mx, my);
                             if (resizeHit) {
                                 this.canvas.style.cursor = resizeHit.dir === 'w' ? 'ew-resize' : 'ns-resize';
                             } else {
-                                this.canvas.style.cursor = hitNode ? 'grab' : 'default';
+                                this.canvas.style.cursor = 'grab';
                             }
+                        } else {
+                             this.canvas.style.cursor = hitNode ? 'grab' : 'default';
                         }
                     }
-
-                    // Г. Pan
-                    if (this.state.dragging) {
-                        this.view.panX += e.clientX - this.state.lastMouse.x;
-                        this.view.panY += e.clientY - this.state.lastMouse.y;
-                        this.canvas.style.cursor = 'grabbing';
-                    } 
-                    
-                    // Д. Drag Node (ИСПРАВЛЕНО)
-                    else if (this.state.dragNode) {
-                        const wp = Utils.screenToWorld(mx, my, this.view.panX, this.view.panY, this.view.zoom);
-                        
-                        // Прибавляем сохраненное смещение к текущей позиции мыши
-                        let newX = wp.x + this.state.dragOffset.x;
-                        let newY = wp.y + this.state.dragOffset.y;
-                        
-                        // Проверка границ (Center Origin):
-                        // Левый край (x - w/2) не должен быть меньше 0
-                        if (newX - (this.state.dragNode.w / 2) < 0) {
-                            newX = this.state.dragNode.w / 2;
-                        }
-                        
-                        // Верхний край (y - h/2) не должен быть меньше 0. 
-                        // *Внимание: мы не знаем реальную calculatedHeight здесь без пересчета, 
-                        // но для грубой проверки node.h подойдет, или просто 0 для центра*
-                        if (newY < 0) newY = 0; // Разрешим центру быть 0, верх чуть уйдет, не страшно.
-
-                        this.state.dragNode.x = newX;
-                        this.state.dragNode.y = newY;
-                        this.canvas.style.cursor = 'grabbing';
-                    }
-
                     this.state.lastMouse = { x: e.clientX, y: e.clientY };
-                    this.render();
                 } 
                 
                 // --- 3. MOUSE UP ---
                 else if (type === 'up') {
+                    if (this.state.marqueeStart) {
+                        this.applyMarqueeSelection(e.shiftKey);
+                        this.state.marqueeStart = null;
+                        this.state.marqueeCurrent = null;
+                        this.render();
+                    }
+
                     if (this.state.resizing) {
                         this.state.resizing = false;
                         this.state.resizeTarget = null;
-                        this.state.resizeDir = null;
                         this.canvas.style.cursor = 'default';
                     }
 
@@ -614,8 +762,50 @@
                     
                     this.state.dragging = false;
                     this.state.dragNode = null;
-                    this.state.dragOffset = null; // Очистка смещения
+
+                    // Сбрасываем курсор после завершения любого действия (особенно Pan колесиком)
+                    if (this.state.mode === 'view') {
+                        // Если пробел все еще держим - возвращаем grab, иначе - стрелка
+                        this.canvas.style.cursor = this.state.isSpacePressed ? 'grab' : 'default';
+                    } else {
+                        // В Edit mode сбрасываем на дефолт (или можно добавить логику hover, но default безопаснее)
+                        this.canvas.style.cursor = 'default';
+                    }
                 }
+            }
+
+            applyMarqueeSelection(isShift) {
+                if (!this.state.marqueeStart || !this.state.marqueeCurrent) return;
+
+                // Нормализуем прямоугольник выделения (экранные координаты)
+                const x1 = Math.min(this.state.marqueeStart.x, this.state.marqueeCurrent.x);
+                const y1 = Math.min(this.state.marqueeStart.y, this.state.marqueeCurrent.y);
+                const x2 = Math.max(this.state.marqueeStart.x, this.state.marqueeCurrent.x);
+                const y2 = Math.max(this.state.marqueeStart.y, this.state.marqueeCurrent.y);
+
+                // Если просто кликнули (рамка слишком мала), игнорируем
+                if (Math.abs(x2 - x1) < 5 && Math.abs(y2 - y1) < 5) return;
+
+                this.data.flowchart.nodes.forEach(node => {
+                    // Конвертируем ноду в экранные координаты
+                    const outputsCount = node.outputs ? node.outputs.length : 0;
+                    const contentH = CONFIG.dims.headerH + (outputsCount * CONFIG.dims.rowH) + CONFIG.dims.footerH + 10;
+                    const actualH = Math.max(node.h, contentH);
+                    
+                    const tl = Utils.worldToScreen(node.x - node.w/2, node.y - actualH/2, this.view.panX, this.view.panY, this.view.zoom);
+                    const br = Utils.worldToScreen(node.x + node.w/2, node.y + actualH/2, this.view.panX, this.view.panY, this.view.zoom);
+                    
+                    // Пересечение прямоугольников
+                    // !(rect1.right < rect2.left || rect1.left > rect2.right || rect1.bottom < rect2.top || rect1.top > rect2.bottom)
+                    const isIntersecting = !(br.x < x1 || tl.x > x2 || br.y < y1 || tl.y > y2);
+
+                    if (isIntersecting) {
+                        this.addToSelection(node);
+                    } else if (!isShift) {
+                        // Если нет шифта, то непересекающиеся должны быть убраны (только если мы не добавляем к текущему)
+                        // Но логика "Клик по пустому + Drag" обычно сбрасывает все в начале (в mousedown), поэтому здесь просто добавляем.
+                    }
+                });
             }
 
             // --- HIT TESTING ---
@@ -756,6 +946,61 @@
                 return Utils.worldToScreen(worldX, worldY, this.view.panX, this.view.panY, this.view.zoom);
             }
 
+            // --- SELECTION HELPERS ---
+
+            // Полная замена выделения
+            selectSingle(node) {
+                this.state.selection = node ? [node] : [];
+                this.updateUI();
+            }
+
+            // Добавление в выборку
+            addToSelection(node) {
+                if (!this.state.selection.includes(node)) {
+                    this.state.selection.push(node);
+                    this.updateUI();
+                }
+            }
+
+            // Удаление из выборки
+            removeFromSelection(node) {
+                this.state.selection = this.state.selection.filter(n => n !== node);
+                this.updateUI();
+            }
+
+            // Переключение (Toggle)
+            toggleSelection(node) {
+                if (this.state.selection.includes(node)) {
+                    this.removeFromSelection(node);
+                } else {
+                    this.addToSelection(node);
+                }
+            }
+
+            // Проверка, выделена ли нода
+            isSelected(node) {
+                return this.state.selection.includes(node);
+            }
+
+            // Обновление панели свойств (упрощенно)
+            updateUI() {
+                const count = this.state.selection.length;
+                const panel = document.getElementById('properties-panel');
+                
+                if (count === 0) {
+                    panel.innerHTML = '<div class="prop-group"><h3>No Selection</h3></div>';
+                    // Обновляем тулбар
+                    document.getElementById('tool-del-node').disabled = true;
+                    // ... остальные кнопки ...
+                } else if (count === 1) {
+                    this.generateProperties(this.state.selection[0]);
+                    document.getElementById('tool-del-node').disabled = false;
+                } else {
+                    panel.innerHTML = `<div class="prop-group"><h3>Multiple Selection (${count} items)</h3><p style="color:#aaa">Properties editing is disabled for multiple items.</p></div>`;
+                    document.getElementById('tool-del-node').disabled = false;
+                }
+            }
+
             // --- LOGIC & CRUD ---
 
             connect(source, output, target) {
@@ -824,24 +1069,42 @@
                 this.render();
             }
 
-            deleteNode(node) {
-                if (!node) return;
-                const idx = this.data.flowchart.nodes.indexOf(node);
-                if (idx > -1) {
-                    // Cleanup connections
+            // Удаление всех выделенных нод
+            deleteSelectedNodes() {
+                if (this.state.selection.length === 0) return;
+
+                // Создаем копию массива, так как мы будем модифицировать исходные данные
+                const nodesToDelete = [...this.state.selection];
+
+                nodesToDelete.forEach(node => {
+                    this._deleteNodeInternal(node);
+                });
+
+                // Сбрасываем выделение и перерисовываем
+                this.selectSingle(null);
+                this.render();
+            }
+
+            // Внутренний метод удаления одной ноды (без ререндера и сброса выделения)
+            _deleteNodeInternal(node) {
+                const index = this.data.flowchart.nodes.indexOf(node);
+                if (index > -1) {
+                    // 1. Удаляем связи
                     this.data.flowchart.nodes.forEach(n => {
-                        n.outputs?.forEach(o => { if (o.cnSID === node.sid) o.cnSID = null; });
-                        // We will rebuild pnSIDs on save, but removing dangling IDs here helps
-                        n.pnSIDs = n.pnSIDs?.filter(id => id !== node.sid);
-                        n.nodeSIDs = n.nodeSIDs?.filter(id => id !== node.sid);
+                        // Очищаем входящие ссылки (cnSID) в аутпутах других нод
+                        if (n.outputs) {
+                            n.outputs.forEach(o => { 
+                                if (o.cnSID === node.sid) o.cnSID = null; 
+                            });
+                        }
+                        // Очищаем списки pnSIDs/nodeSIDs (для чистоты, хотя rebuildConnectivity всё поправит)
+                        if (n.pnSIDs) n.pnSIDs = n.pnSIDs.filter(sid => sid !== node.sid);
+                        if (n.nodeSIDs) n.nodeSIDs = n.nodeSIDs.filter(sid => sid !== node.sid);
                     });
-                    
-                    // Remove from both logic and UI arrays at the same index
-                    this.data.flowchart.nodes.splice(idx, 1);
-                    this.data.ui.nodes.splice(idx, 1);
-                    
-                    this.select(null);
-                    this.render();
+
+                    // 2. Удаляем саму ноду из данных и UI
+                    this.data.flowchart.nodes.splice(index, 1);
+                    this.data.ui.nodes.splice(index, 1);
                 }
             }
 
@@ -864,58 +1127,76 @@
             // --- CLIPBOARD OPERATIONS ---
 
             copyNode(node) {
-                if (!node) return;
-                
-                // Находим индекс, чтобы скопировать также UI-данные (цвет)
-                const idx = this.data.flowchart.nodes.indexOf(node);
-                const uiNode = this.data.ui.nodes[idx];
+                // Если передана конкретная нода (через контекстное меню), копируем её
+                // Если нет аргумента (Ctrl+C), копируем всё выделение
+                let nodesToCopy = [];
+                if (node) {
+                    nodesToCopy = [node];
+                } else {
+                    nodesToCopy = this.state.selection;
+                }
 
-                // Глубокое копирование через JSON, чтобы разорвать ссылки
-                this.clipboard = {
-                    logic: JSON.parse(JSON.stringify(node)),
-                    ui: JSON.parse(JSON.stringify(uiNode))
-                };
+                if (nodesToCopy.length === 0) return;
+
+                // Сериализуем массив
+                const clipboardPayload = nodesToCopy.map(n => {
+                    const idx = this.data.flowchart.nodes.indexOf(n);
+                    return {
+                        logic: JSON.parse(JSON.stringify(n)),
+                        ui: JSON.parse(JSON.stringify(this.data.ui.nodes[idx]))
+                    };
+                });
                 
-                // console.log("Node copied to internal clipboard");
+                // Вычисляем центр bounding box скопированной группы (для корректной вставки)
+                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                clipboardPayload.forEach(item => {
+                    minX = Math.min(minX, item.logic.x);
+                    minY = Math.min(minY, item.logic.y);
+                    maxX = Math.max(maxX, item.logic.x);
+                    maxY = Math.max(maxY, item.logic.y);
+                });
+
+                this.clipboard = {
+                    items: clipboardPayload,
+                    center: {
+                        x: (minX + maxX) / 2,
+                        y: (minY + maxY) / 2
+                    }
+                };
             }
 
             pasteNode(screenX, screenY) {
-                if (!this.clipboard) return;
+                if (!this.clipboard || !this.clipboard.items) return;
 
                 const wp = Utils.screenToWorld(screenX, screenY, this.view.panX, this.view.panY, this.view.zoom);
                 
-                // 1. Подготовка логической ноды
-                const newNode = JSON.parse(JSON.stringify(this.clipboard.logic));
-                
-                // Генерируем новый SID ноды
-                newNode.sid = Utils.uuid();
-                
-                // Устанавливаем позицию (центр ноды под курсором)
-                newNode.x = wp.x;
-                newNode.y = wp.y;
-                
-                // Очищаем связи
-                newNode.pnSIDs = [];
-                newNode.poSIDs = [];
-                newNode.nodeSIDs = [];
-                
-                // Генерируем новые ID для выходов и сбрасываем их связи
-                if (newNode.outputs) {
-                    newNode.outputs.forEach(out => {
-                        out.sid = Utils.uuid(); // Новый ID выхода
-                        out.cnSID = null;       // Разрыв исходящей связи
-                    });
-                }
+                // Снимаем текущее выделение
+                this.selectSingle(null);
 
-                // 2. Подготовка UI данных
-                const newUiNode = JSON.parse(JSON.stringify(this.clipboard.ui));
-                
-                // Добавляем в модель
-                this.data.flowchart.nodes.push(newNode);
-                this.data.ui.nodes.push(newUiNode);
+                this.clipboard.items.forEach(item => {
+                    // 1. Логика
+                    const newNode = JSON.parse(JSON.stringify(item.logic));
+                    newNode.sid = Utils.uuid();
+                    
+                    // Расчет позиции: Новая позиция = Курсор + (Старая позиция - Старый центр группы)
+                    newNode.x = wp.x + (item.logic.x - this.clipboard.center.x);
+                    newNode.y = wp.y + (item.logic.y - this.clipboard.center.y);
+                    
+                    newNode.pnSIDs = []; newNode.poSIDs = []; newNode.nodeSIDs = [];
+                    if (newNode.outputs) {
+                        newNode.outputs.forEach(out => { out.sid = Utils.uuid(); out.cnSID = null; });
+                    }
 
-                // Выделяем вставленную ноду
-                this.select(newNode);
+                    // 2. UI
+                    const newUiNode = JSON.parse(JSON.stringify(item.ui));
+                    
+                    this.data.flowchart.nodes.push(newNode);
+                    this.data.ui.nodes.push(newUiNode);
+                    
+                    // Добавляем в выделение
+                    this.addToSelection(newNode);
+                });
+
                 this.render();
             }
 
@@ -967,6 +1248,23 @@
 
                 // 3. НОДЫ
                 this.data.flowchart.nodes.forEach((node, i) => this.drawNode(node, i));
+
+                 // 4. MARQUEE SELECTION
+                if (this.state.marqueeStart && this.state.marqueeCurrent) {
+                    const x = Math.min(this.state.marqueeStart.x, this.state.marqueeCurrent.x);
+                    const y = Math.min(this.state.marqueeStart.y, this.state.marqueeCurrent.y);
+                    const w = Math.abs(this.state.marqueeCurrent.x - this.state.marqueeStart.x);
+                    const h = Math.abs(this.state.marqueeCurrent.y - this.state.marqueeStart.y);
+
+                    ctx.save();
+                    ctx.strokeStyle = CONFIG.colors.marqueeStroke;
+                    ctx.fillStyle = CONFIG.colors.marqueeFill;
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([4, 4]);
+                    ctx.fillRect(x, y, w, h);
+                    ctx.strokeRect(x, y, w, h);
+                    ctx.restore();
+                }
             }
 
             drawGrid() {
@@ -1063,83 +1361,102 @@
 
             drawNode(node, idx) {
                 const zoom = this.view.zoom;
-                const w = node.w * zoom;
                 
+                // --- РАЗМЕРЫ ---
+                const w = node.w * zoom;
                 const hh = CONFIG.dims.headerH * zoom; 
                 const rh = CONFIG.dims.rowH * zoom;    
                 const fh = CONFIG.dims.footerH * zoom; 
+                
                 const outputsCount = node.outputs ? node.outputs.length : 0;
-                
-                // Минимально необходимая высота для контента
                 const contentHeightRaw = CONFIG.dims.headerH + (outputsCount * CONFIG.dims.rowH) + CONFIG.dims.footerH + 10;
-                
-                // Итоговая высота ноды: либо то, что задал юзер (node.h), либо контент, если юзер задал меньше
                 const actualH = Math.max(node.h, contentHeightRaw);
                 const h = actualH * zoom;
 
                 // Смещение координат (Center Origin)
-                // Рисуем от: ЦентрX - Ширина/2, ЦентрY - Высота/2
                 const drawX = node.x - (node.w / 2);
                 const drawY = node.y - (actualH / 2);
 
                 const pos = Utils.worldToScreen(drawX, drawY, this.view.panX, this.view.panY, zoom);
                 const rad = CONFIG.dims.borderRadius * zoom;
 
-                // ... (Далее код отрисовки цветов и фона без изменений) ...
+                // Цвета
                 let borderColor = CONFIG.colors.borderDefault;
                 if (this.data.ui.nodes[idx]?.node?.color) {
                     const c = this.data.ui.nodes[idx].node.color;
                     borderColor = `rgb(${c[0]*255}, ${c[1]*255}, ${c[2]*255})`;
                 }
+
                 const headerBgColor = node.s ? CONFIG.colors.headerStart : CONFIG.colors.header;
                 const outputNameColor = node.s ? CONFIG.colors.headerStart : CONFIG.colors.outputNameDefault;
 
+                // --- ЛОГИКА ВЫДЕЛЕНИЯ ---
+                const isSelected = this.isSelected(node); // Используем хелпер множественного выделения
+
                 this.ctx.save();
+
+                // 1. ТЕЛО НОДЫ
                 this.ctx.beginPath();
                 this.ctx.roundRect(pos.x, pos.y, w, h, rad);
                 this.ctx.fillStyle = CONFIG.colors.bgNode;
                 this.ctx.fill();
 
+                // 2. ЗАГОЛОВОК
                 this.ctx.save();
                 this.ctx.clip(); 
                 this.ctx.fillStyle = headerBgColor;
                 this.ctx.fillRect(pos.x, pos.y, w, hh);
                 this.ctx.restore();
 
-                this.ctx.lineWidth = (node === this.state.selection.node) ? 3 : 1;
-                this.ctx.strokeStyle = (node === this.state.selection.node) ? CONFIG.colors.selection : borderColor;
-                if (this.state.hover.node === node && this.state.connectionStart) this.ctx.strokeStyle = CONFIG.colors.connectionHover;
+                // 3. ОБВОДКА (ИСПРАВЛЕНО)
+                this.ctx.beginPath(); // Важно начать новый путь для обводки
+                this.ctx.roundRect(pos.x, pos.y, w, h, rad);
+                
+                if (isSelected) {
+                    this.ctx.lineWidth = 3;
+                    this.ctx.strokeStyle = CONFIG.colors.selection; // Синий цвет выделения
+                } else if (this.state.hover.node === node && this.state.connectionStart) {
+                    this.ctx.lineWidth = 3;
+                    this.ctx.strokeStyle = CONFIG.colors.connectionHover; // Оранжевый при наведении связи
+                } else {
+                    this.ctx.lineWidth = 1;
+                    this.ctx.strokeStyle = borderColor; // Обычный цвет
+                }
                 this.ctx.stroke();
 
+                // 4. ТЕКСТ
                 this.ctx.textAlign = 'left'; 
                 this.ctx.fillStyle = CONFIG.colors.text;
                 this.ctx.font = `bold ${Math.max(10, 13 * zoom)}px sans-serif`;
                 this.ctx.textBaseline = 'middle';
                 this.ctx.fillText(node.c || 'Node', pos.x + 10*zoom, pos.y + hh/2, w - 20);
 
-                // INPUT DOT (строго по центру ИТОГОВОЙ высоты)
+                // 5. INPUT DOT
                 this.ctx.beginPath();
                 this.ctx.arc(pos.x, pos.y + h/2, 5*zoom, -Math.PI/2, Math.PI/2);
                 this.ctx.fillStyle = '#555';
                 this.ctx.fill();
 
+                // 6. OUTPUTS
                 if (node.outputs) {
                     const startY = hh + (5 * zoom); 
                     node.outputs.forEach((out, i) => this.drawOutput(node, out, i, pos, startY, outputNameColor));
                 }
 
+                // 7. TAGS
                 if (node.t) {
                     this.ctx.textAlign = 'left';
                     this.ctx.fillStyle = CONFIG.colors.textDim;
                     this.ctx.font = `italic ${Math.max(9, 11 * zoom)}px sans-serif`;
-                    // Тэги всегда в самом низу текущей высоты
                     this.ctx.fillText(node.t, pos.x + 10*zoom, pos.y + h - (fh/2) + 2);
                 }
 
+                // 8. DISABLED OVERLAY
                 if (!node.e) {
                     this.ctx.fillStyle = 'rgba(0,0,0,0.5)';
                     this.ctx.fill();
                 }
+
                 this.ctx.restore();
             }
 
@@ -1286,11 +1603,8 @@
                 const items = [];
                 const rect = this.canvas.getBoundingClientRect();
                 
-                // Проверяем, куда кликнули
                 const mx = e.clientX - rect.left;
                 const my = e.clientY - rect.top;
-
-                // Для Paste нам нужны экранные координаты мыши, сохраняем их в замыкании
                 const pasteX = mx;
                 const pasteY = my;
 
@@ -1298,24 +1612,34 @@
                     items.push({ txt: 'Delete Connection', fn: () => { this.state.hover.connection.output.cnSID = null; this.render(); }});
                 } else if (this.state.hover.node) {
                     const n = this.state.hover.node;
-                    // Действия с нодой
-                    items.push({ txt: 'Copy Node', fn: () => this.copyNode(n) }); // <--- COPY
-                    items.push({ txt: 'Delete Node', fn: () => this.deleteNode(n) });
-                    items.push({ txt: '----------------', fn: () => {} }); // Separator simulation
+                    
+                    // ЛОГИКА ВЫДЕЛЕНИЯ ПРИ ПКМ:
+                    // Если кликнули по ноде, которая НЕ выделена -> выделяем только её
+                    if (!this.isSelected(n)) {
+                        this.selectSingle(n);
+                    }
+                    // Если кликнули по уже выделенной -> оставляем выделение группы
+
+                    // Формируем текст для удаления
+                    const count = this.state.selection.length;
+                    const deleteText = count > 1 ? `Delete ${count} nodes` : 'Delete node';
+
+                    items.push({ txt: 'Copy', fn: () => this.copyNode() }); // Копируем всё выделение
+                    items.push({ txt: deleteText, fn: () => this.deleteSelectedNodes() }); // Удаляем всё выделение
+                    items.push({ txt: '----------------', fn: () => {} });
+                    
+                    // Действия ниже применяем только к той ноде, над которой курсор (даже если выделено много)
+                    // или можно применять ко всем, но для Enable/Start логичнее к конкретной
                     items.push({ txt: n.e ? 'Disable' : 'Enable', fn: () => { n.e = !n.e; this.render(); }});
                     items.push({ txt: 'Set Start', fn: () => { this.data.flowchart.nodes.forEach(x=>x.s=false); n.s=true; this.render(); }});
                 } else {
-                    // Действия с холстом
                     items.push({ txt: 'Add Node', fn: () => this.addNode(e.clientX, e.clientY) });
-                    
-                    // <--- PASTE (Только если буфер не пуст)
                     if (this.clipboard) {
                         items.push({ txt: 'Paste Node', fn: () => this.pasteNode(pasteX, pasteY) });
                     }
                 }
 
                 menu.innerHTML = items.map((i, idx) => {
-                    // Простая эмуляция разделителя
                     if (i.txt.startsWith('---')) return `<div style="border-top:1px solid #444; margin:4px 0;"></div>`;
                     return `<div class="ctx-item" data-i="${idx}">${i.txt}</div>`;
                 }).join('');
@@ -1804,72 +2128,14 @@
              app.exportMiniFlow();
         };
 
-        // 8. Hotkeys Handler
-        
-        // Перехват системного события копирования для очистки внутреннего буфера
-        document.addEventListener('copy', (e) => {
-            // Если событие произошло НЕ на body (например, в input или textarea), 
-            // значит пользователь копирует текст.
-            // Очищаем наш буфер нод, чтобы Ctrl+V потом не вставил ноду вместо текста.
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
-                app.clipboard = null;
-            }
-        });
-
-        document.addEventListener('keydown', (e) => {
-            // Игнорируем хоткеи, если фокус в поле ввода
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-
-            const isCtrl = e.ctrlKey || e.metaKey; // Windows Ctrl or Mac Cmd
-
-            // Save: Ctrl+S
-            if (isCtrl && e.code === 'KeyS') {
-                e.preventDefault(); 
-                if (e.shiftKey) {
-                    saveAsStubAction();
-                } else {
-                    saveStubAction();
-                }
-            }
-
-            // Copy: Ctrl+C
-            if (isCtrl && e.code === 'KeyC') {
-                // Копируем только если есть выделенная нода и мы в режиме редактирования
-                if (app.state.mode === 'edit' && app.state.selection.node) {
-                    // e.preventDefault() здесь не обязательно, но полезно, чтобы не копировать "ничего" в системный буфер
-                    app.copyNode(app.state.selection.node);
-                }
-            }
-
-            // Paste: Ctrl+V
-            if (isCtrl && e.code === 'KeyV') {
-                if (app.state.mode === 'edit' && app.clipboard) {
-                    // Вставляем в позицию последнего известного положения мыши (относительно канваса)
-                    // app.state.lastMouse хранит clientX/Y
-                    const rect = app.canvas.getBoundingClientRect();
-                    const mx = app.state.lastMouse.x - rect.left;
-                    const my = app.state.lastMouse.y - rect.top;
-                    
-                    app.pasteNode(mx, my);
-                }
-            }
-            
-            // Delete: Del key
-            if (e.code === 'Delete') {
-                 if (app.state.mode === 'edit' && app.state.selection.node) {
-                     app.deleteNode(app.state.selection.node);
-                 }
-            }
-        });
-
-        // 9. Toolbar Actions
+        // 8. Toolbar Actions
         const toolAction = (id, fn) => document.getElementById(id).onclick = fn;
         toolAction('tool-add-node', () => app.addNode(app.canvas.width/2, app.canvas.height/2));
         toolAction('tool-del-node', () => app.deleteNode(app.state.selection.node));
         toolAction('tool-add-out', () => document.getElementById('prop-add-out').click());
         toolAction('tool-enable', () => { if(app.state.selection.node) { app.state.selection.node.e = !app.state.selection.node.e; app.generateProperties(app.state.selection.node); app.render(); }});
         toolAction('tool-start', () => { if(app.state.selection.node) { app.data.flowchart.nodes.forEach(n=>n.s=false); app.state.selection.node.s=true; app.generateProperties(app.state.selection.node); app.render(); }});
-
+        toolAction('tool-del-node', () => app.deleteSelectedNodes());
     </script>
 </body>
 </html>
