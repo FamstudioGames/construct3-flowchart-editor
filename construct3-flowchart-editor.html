@@ -321,14 +321,14 @@
                 textDim: '#888888'
             },
             dims: {
-                nodeW: 420,       // Дефолтная ширина
-                headerH: 32,      
-                rowH: 30,         
-                footerH: 30,      
-                dotRadius: 6,
+                nodeW: 420,
+                headerH: 32,      // Высота заголовка
+                rowH: 33,         // Высота строки выхода (по замерам)
+                footerH: 32,      // Высота подвала (для тегов)
+                dotRadius: 8,
                 borderRadius: 6,
                 gridSize: 500,
-                resizeMargin: 8   // <--- Ширина зоны захвата для ресайза (px)
+                resizeMargin: 8
             },
             zoom: { min: 0.05, max: 2, stepIn: 1.1, stepOut: 0.9 },
             clickThreshold: 50
@@ -443,91 +443,140 @@
                 const mx = e.clientX - rect.left;
                 const my = e.clientY - rect.top;
 
+                // --- 1. MOUSE DOWN ---
                 if (type === 'down') {
                     if (this.state.mode === 'edit') {
-                        // 1. Сначала проверяем Ресайз (приоритет над перетаскиванием)
+                        // Шаг 1: Приоритет на Output
+                        const hitNode = this.hitTestNode(mx, my);
+                        const hitOut = hitNode ? this.hitTestOutput(hitNode, mx, my) : null;
+
+                        if (hitNode && hitOut) {
+                            this.state.connectionStart = { node: hitNode, output: hitOut.output };
+                            this.state.lastMouse = { x: e.clientX, y: e.clientY }; 
+                            this.render();
+                            return; 
+                        }
+
+                        // Шаг 2: Ресайз
                         const resizeHit = this.hitTestResize(mx, my);
                         if (resizeHit) {
                             this.state.resizing = true;
                             this.state.resizeTarget = resizeHit.node;
                             this.state.resizeDir = resizeHit.dir;
                             this.state.lastMouse = { x: e.clientX, y: e.clientY };
-                            return; // Прерываем, чтобы не начать драг ноды
+                            return; 
                         }
 
-                        // 2. Обычная логика (Связи, Выделение)
-                        const hitNode = this.hitTestNode(mx, my);
-                        const hitOut = hitNode ? this.hitTestOutput(hitNode, mx, my) : null;
-
-                        if (hitNode && hitOut) {
-                            this.state.connectionStart = { node: hitNode, output: hitOut.output };
-                        } else if (hitNode) {
+                        // Шаг 3: Перетаскивание Ноды / Выделение
+                        if (hitNode) {
                             this.select(hitNode);
                             this.state.dragNode = hitNode;
+                            
+                            // --- ИСПРАВЛЕНИЕ ЗАХВАТА ---
+                            // Вычисляем смещение между центром ноды и курсором в момент клика
+                            const wp = Utils.screenToWorld(mx, my, this.view.panX, this.view.panY, this.view.zoom);
+                            this.state.dragOffset = {
+                                x: hitNode.x - wp.x,
+                                y: hitNode.y - wp.y
+                            };
+                            
                         } else {
                             this.select(null);
                         }
                         this.render();
                     }
                     
-                    // Pan (если ничего не зацепили)
+                    // Pan
                     if (!this.state.dragNode && !this.state.connectionStart && !this.state.resizing) {
                         this.state.dragging = true;
                     }
                     this.state.lastMouse = { x: e.clientX, y: e.clientY };
                 } 
+                
+                // --- 2. MOUSE MOVE ---
                 else if (type === 'move') {
-                    // А. Режим РЕСАЙЗА
+                    // А. Тянем РЕСАЙЗ
                     if (this.state.resizing && this.state.resizeTarget) {
                         const dx = (e.clientX - this.state.lastMouse.x) / this.view.zoom;
                         const dy = (e.clientY - this.state.lastMouse.y) / this.view.zoom;
-                        
                         const node = this.state.resizeTarget;
                         const minSize = this.getMinNodeSize(node);
 
                         if (this.state.resizeDir === 'w') {
-                            node.w = Math.max(minSize.w, node.w + dx);
+                            const oldW = node.w;
+                            const newW = Math.max(minSize.w, oldW + dx);
+                            node.x += (newW - oldW) / 2;
+                            node.w = newW;
                             this.canvas.style.cursor = 'ew-resize';
                         } else if (this.state.resizeDir === 'h') {
-                            node.h = Math.max(minSize.h, node.h + dy);
+                            const oldH = node.h;
+                            const newH = Math.max(minSize.h, oldH + dy);
+                            node.y += (newH - oldH) / 2;
+                            node.h = newH;
                             this.canvas.style.cursor = 'ns-resize';
                         }
-                        
                         this.state.lastMouse = { x: e.clientX, y: e.clientY };
                         this.render();
                         return;
                     }
 
-                    // Б. Обычный режим (Hover эффекты курсора)
-                    if (this.state.mode === 'edit' && !this.state.dragging && !this.state.dragNode && !this.state.connectionStart) {
-                        const resizeHit = this.hitTestResize(mx, my);
-                        if (resizeHit) {
-                            this.canvas.style.cursor = resizeHit.dir === 'w' ? 'ew-resize' : 'ns-resize';
-                        } else {
-                            // Проверка наведения на ноду (grab) или пустоту (default)
-                            const hitNode = this.hitTestNode(mx, my);
-                            this.canvas.style.cursor = hitNode ? 'grab' : 'default';
-                            
-                            // Логика hover подсветки связей
-                            this.state.hover.node = hitNode;
-                            this.state.hover.output = hitNode ? this.hitTestOutput(hitNode, mx, my) : null;
-                            this.state.hover.connection = (!hitNode) ? this.hitTestConnection(mx, my) : null;
+                    // Б. Тянем СВЯЗЬ
+                    if (this.state.connectionStart) {
+                        const hitNode = this.hitTestNode(mx, my);
+                        this.state.hover.node = (hitNode !== this.state.connectionStart.node) ? hitNode : null;
+                        this.state.lastMouse = { x: e.clientX, y: e.clientY };
+                        this.render();
+                        return;
+                    }
+
+                    // В. Hover
+                    if (this.state.mode === 'edit' && !this.state.dragging && !this.state.dragNode) {
+                        const hitNode = this.hitTestNode(mx, my);
+                        const hitOut = hitNode ? this.hitTestOutput(hitNode, mx, my) : null;
+                        
+                        this.state.hover.node = hitNode;
+                        this.state.hover.output = hitOut;
+                        this.state.hover.connection = (!hitNode) ? this.hitTestConnection(mx, my) : null;
+
+                        if (hitOut) {
+                            this.canvas.style.cursor = 'crosshair'; 
+                        } 
+                        else {
+                            const resizeHit = this.hitTestResize(mx, my);
+                            if (resizeHit) {
+                                this.canvas.style.cursor = resizeHit.dir === 'w' ? 'ew-resize' : 'ns-resize';
+                            } else {
+                                this.canvas.style.cursor = hitNode ? 'grab' : 'default';
+                            }
                         }
                     }
 
-                    // В. Pan (перемещение холста)
+                    // Г. Pan
                     if (this.state.dragging) {
                         this.view.panX += e.clientX - this.state.lastMouse.x;
                         this.view.panY += e.clientY - this.state.lastMouse.y;
                         this.canvas.style.cursor = 'grabbing';
                     } 
-                    // Г. Drag Node (перемещение ноды)
+                    
+                    // Д. Drag Node (ИСПРАВЛЕНО)
                     else if (this.state.dragNode) {
                         const wp = Utils.screenToWorld(mx, my, this.view.panX, this.view.panY, this.view.zoom);
-                        let newX = wp.x - this.state.dragNode.w / 2;
-                        let newY = wp.y - 15;
-                        if (newX < 0) newX = 0;
-                        if (newY < 0) newY = 0;
+                        
+                        // Прибавляем сохраненное смещение к текущей позиции мыши
+                        let newX = wp.x + this.state.dragOffset.x;
+                        let newY = wp.y + this.state.dragOffset.y;
+                        
+                        // Проверка границ (Center Origin):
+                        // Левый край (x - w/2) не должен быть меньше 0
+                        if (newX - (this.state.dragNode.w / 2) < 0) {
+                            newX = this.state.dragNode.w / 2;
+                        }
+                        
+                        // Верхний край (y - h/2) не должен быть меньше 0. 
+                        // *Внимание: мы не знаем реальную calculatedHeight здесь без пересчета, 
+                        // но для грубой проверки node.h подойдет, или просто 0 для центра*
+                        if (newY < 0) newY = 0; // Разрешим центру быть 0, верх чуть уйдет, не страшно.
+
                         this.state.dragNode.x = newX;
                         this.state.dragNode.y = newY;
                         this.canvas.style.cursor = 'grabbing';
@@ -536,8 +585,9 @@
                     this.state.lastMouse = { x: e.clientX, y: e.clientY };
                     this.render();
                 } 
+                
+                // --- 3. MOUSE UP ---
                 else if (type === 'up') {
-                    // Сброс ресайза
                     if (this.state.resizing) {
                         this.state.resizing = false;
                         this.state.resizeTarget = null;
@@ -545,7 +595,6 @@
                         this.canvas.style.cursor = 'default';
                     }
 
-                    // Завершение соединения
                     if (this.state.connectionStart) {
                         let target = this.state.hover.node || this.findClosestNode(mx, my);
                         if (target && target !== this.state.connectionStart.node) {
@@ -557,6 +606,7 @@
                     
                     this.state.dragging = false;
                     this.state.dragNode = null;
+                    this.state.dragOffset = null; // Очистка смещения
                 }
             }
 
@@ -565,10 +615,18 @@
             hitTestNode(mx, my) {
                 if (!this.data.flowchart) return null;
                 const wp = Utils.screenToWorld(mx, my, this.view.panX, this.view.panY, this.view.zoom);
-                // Iterate backwards (topmost first)
+                
                 for (let i = this.data.flowchart.nodes.length - 1; i >= 0; i--) {
                     const n = this.data.flowchart.nodes[i];
-                    if (Utils.isPointInRect(wp.x, wp.y, n.x, n.y, n.w, n.h)) return n;
+                    
+                    const outputsCount = n.outputs ? n.outputs.length : 0;
+                    const contentH = CONFIG.dims.headerH + (outputsCount * CONFIG.dims.rowH) + CONFIG.dims.footerH + 10;
+                    const actualH = Math.max(n.h, contentH);
+
+                    const left = n.x - (n.w / 2);
+                    const top = n.y - (actualH / 2);
+                    
+                    if (Utils.isPointInRect(wp.x, wp.y, left, top, n.w, actualH)) return n;
                 }
                 return null;
             }
@@ -577,51 +635,53 @@
             // Возвращает объект { node, dir: 'w' | 'h' } или null
             hitTestResize(mx, my) {
                 if (!this.data.flowchart) return null;
+                const margin = CONFIG.dims.resizeMargin;
                 
-                const margin = CONFIG.dims.resizeMargin; // Зона захвата в пикселях экрана
-                
-                // Проходим по нодам сверху вниз (обратный порядок отрисовки не важен для границ, но лучше брать верхнюю)
-                // Используем обратный цикл, чтобы поймать верхнюю ноду, если они перекрываются
                 for (let i = this.data.flowchart.nodes.length - 1; i >= 0; i--) {
                     const n = this.data.flowchart.nodes[i];
                     
-                    // Переводим координаты ноды в экранные
-                    const screenPos = Utils.worldToScreen(n.x, n.y, this.view.panX, this.view.panY, this.view.zoom);
+                    const outputsCount = n.outputs ? n.outputs.length : 0;
+                    const contentH = CONFIG.dims.headerH + (outputsCount * CONFIG.dims.rowH) + CONFIG.dims.footerH + 10;
+                    
+                    // Используем реальную высоту (юзерскую или контентную)
+                    const actualH = Math.max(n.h, contentH);
+                    
+                    const topLeftX = n.x - (n.w / 2);
+                    const topLeftY = n.y - (actualH / 2);
+                    
+                    const screenPos = Utils.worldToScreen(topLeftX, topLeftY, this.view.panX, this.view.panY, this.view.zoom);
                     const screenW = n.w * this.view.zoom;
-                    const screenH = n.h * this.view.zoom;
+                    const screenH = actualH * this.view.zoom;
 
-                    // Границы ноды на экране
                     const left = screenPos.x;
                     const right = screenPos.x + screenW;
                     const top = screenPos.y;
                     const bottom = screenPos.y + screenH;
 
-                    // 1. Проверка ПРАВОЙ границы (изменение ширины)
-                    // Курсор должен быть в пределах высоты ноды и рядом с правой гранью
-                    if (my >= top && my <= bottom && 
-                        mx >= right - margin && mx <= right + margin) {
-                        return { node: n, dir: 'w' };
-                    }
-
-                    // 2. Проверка НИЖНЕЙ границы (изменение высоты)
-                    // Курсор должен быть в пределах ширины ноды и рядом с нижней гранью
-                    if (mx >= left && mx <= right && 
-                        my >= bottom - margin && my <= bottom + margin) {
-                        return { node: n, dir: 'h' };
-                    }
+                    if (my >= top && my <= bottom && mx >= right - margin && mx <= right + margin) return { node: n, dir: 'w' };
+                    if (mx >= left && mx <= right && my >= bottom - margin && my <= bottom + margin) return { node: n, dir: 'h' };
                 }
                 return null;
             }
 
             hitTestOutput(node, mx, my) {
                 if (!node.outputs) return null;
-                const sp = Utils.worldToScreen(node.x, node.y, this.view.panX, this.view.panY, this.view.zoom);
-                const startY = sp.y + CONFIG.dims.headerH * this.view.zoom + (node.t ? 20 * this.view.zoom : 5 * this.view.zoom);
+                
+                const outputsCount = node.outputs.length;
+                const contentH = CONFIG.dims.headerH + (outputsCount * CONFIG.dims.rowH) + CONFIG.dims.footerH + 10;
+                const actualH = Math.max(node.h, contentH);
+                
+                const topLeftX = node.x - (node.w / 2);
+                const topLeftY = node.y - (actualH / 2);
+                
+                const sp = Utils.worldToScreen(topLeftX, topLeftY, this.view.panX, this.view.panY, this.view.zoom);
+                
+                const startY = sp.y + CONFIG.dims.headerH * this.view.zoom + (5 * this.view.zoom);
                 const dotX = sp.x + node.w * this.view.zoom;
-                const r = 15 * this.view.zoom; // Touch area radius
+                const r = 20 * this.view.zoom; 
 
                 for (let i = 0; i < node.outputs.length; i++) {
-                    const dotY = startY + (i * CONFIG.dims.rowH * this.view.zoom) + (12 * this.view.zoom);
+                    const dotY = startY + (i * CONFIG.dims.rowH * this.view.zoom) + (CONFIG.dims.rowH * this.view.zoom / 2);
                     if (Math.hypot(mx - dotX, my - dotY) < r) return { output: node.outputs[i], index: i };
                 }
                 return null;
@@ -662,19 +722,28 @@
             getOutputPos(node, idx) {
                 const hh = CONFIG.dims.headerH;
                 const rh = CONFIG.dims.rowH;
-                // В новой версии теги внизу, поэтому отступ сверху фиксированный
-                const topPadding = 5; 
+                const fh = CONFIG.dims.footerH;
+                const outputsCount = node.outputs ? node.outputs.length : 0;
+                
+                const contentH = hh + (outputsCount * rh) + fh + 10;
+                const actualH = Math.max(node.h, contentH);
+                
+                const topLeftX = node.x - (node.w / 2);
+                const topLeftY = node.y - (actualH / 2);
 
-                const worldY = node.y + hh + topPadding + (idx * rh) + (rh / 2);
-                const worldX = node.x + node.w;
+                const topPadding = 5; 
+                const worldY = topLeftY + hh + topPadding + (idx * rh) + (rh / 2);
+                const worldX = topLeftX + node.w;
 
                 return Utils.worldToScreen(worldX, worldY, this.view.panX, this.view.panY, this.view.zoom);
             }
 
             getNodeInputPos(node) {
-                // Вход всегда по центру текущей высоты ноды
-                const worldY = node.y + (node.h / 2);
-                const worldX = node.x;
+                // node.y - это уже центр по вертикали!
+                const worldY = node.y;
+                
+                // Левая грань = центр - половина ширины
+                const worldX = node.x - (node.w / 2);
 
                 return Utils.worldToScreen(worldX, worldY, this.view.panX, this.view.panY, this.view.zoom);
             }
@@ -704,11 +773,17 @@
             addNode(screenX, screenY) {
                 const wp = Utils.screenToWorld(screenX, screenY, this.view.panX, this.view.panY, this.view.zoom);
                 
-                // 1. Logic Node Structure (matches backup)
+                // Рассчитываем высоту для 1 выхода (дефолт)
+                const defaultOutputsCount = 1;
+                const calcH = CONFIG.dims.headerH + (defaultOutputsCount * CONFIG.dims.rowH) + CONFIG.dims.footerH + 10;
+
                 const newNode = {
                     sid: Utils.uuid(), 
                     pnSIDs: [], poSIDs: [], nodeSIDs: [],
-                    x: wp.x - 210, y: wp.y - 66, w: 420, h: 132,
+                    x: wp.x - 210, 
+                    y: wp.y - (calcH / 2), 
+                    w: 420, 
+                    h: calcH, // <--- Правильная начальная высота
                     t: "", s: false, e: true, c: "New Node",
                     pi: 0, ty: "dictionary", pr: false, prfsid: null, prfnsid: null,
                     outputs: [{ 
@@ -922,85 +997,83 @@
 
             drawNode(node, idx) {
                 const zoom = this.view.zoom;
-                
-                // --- РАЗМЕРЫ (Строго из JSON/Модели) ---
                 const w = node.w * zoom;
-                const h = node.h * zoom; // <--- ТЕПЕРЬ СТРОГО ИСПОЛЬЗУЕМ ВЫСОТУ НОДЫ
                 
                 const hh = CONFIG.dims.headerH * zoom; 
+                const rh = CONFIG.dims.rowH * zoom;    
                 const fh = CONFIG.dims.footerH * zoom; 
+                const outputsCount = node.outputs ? node.outputs.length : 0;
+                
+                // Минимально необходимая высота для контента
+                const contentHeightRaw = CONFIG.dims.headerH + (outputsCount * CONFIG.dims.rowH) + CONFIG.dims.footerH + 10;
+                
+                // Итоговая высота ноды: либо то, что задал юзер (node.h), либо контент, если юзер задал меньше
+                const actualH = Math.max(node.h, contentHeightRaw);
+                const h = actualH * zoom;
+
+                // Смещение координат (Center Origin)
+                // Рисуем от: ЦентрX - Ширина/2, ЦентрY - Высота/2
+                const drawX = node.x - (node.w / 2);
+                const drawY = node.y - (actualH / 2);
+
+                const pos = Utils.worldToScreen(drawX, drawY, this.view.panX, this.view.panY, zoom);
                 const rad = CONFIG.dims.borderRadius * zoom;
 
-                // Позиция на экране
-                const pos = Utils.worldToScreen(node.x, node.y, this.view.panX, this.view.panY, zoom);
-
-                // Цвета
+                // ... (Далее код отрисовки цветов и фона без изменений) ...
                 let borderColor = CONFIG.colors.borderDefault;
                 if (this.data.ui.nodes[idx]?.node?.color) {
                     const c = this.data.ui.nodes[idx].node.color;
                     borderColor = `rgb(${c[0]*255}, ${c[1]*255}, ${c[2]*255})`;
                 }
-
                 const headerBgColor = node.s ? CONFIG.colors.headerStart : CONFIG.colors.header;
                 const outputNameColor = node.s ? CONFIG.colors.headerStart : CONFIG.colors.outputNameDefault;
 
                 this.ctx.save();
-
-                // 1. ТЕЛО НОДЫ (ФОН) - Рисуем по реальным размерам w/h
                 this.ctx.beginPath();
                 this.ctx.roundRect(pos.x, pos.y, w, h, rad);
                 this.ctx.fillStyle = CONFIG.colors.bgNode;
                 this.ctx.fill();
 
-                // 2. ЗАГОЛОВОК
                 this.ctx.save();
                 this.ctx.clip(); 
                 this.ctx.fillStyle = headerBgColor;
                 this.ctx.fillRect(pos.x, pos.y, w, hh);
                 this.ctx.restore();
 
-                // 3. ОБВОДКА
                 this.ctx.lineWidth = (node === this.state.selection.node) ? 3 : 1;
                 this.ctx.strokeStyle = (node === this.state.selection.node) ? CONFIG.colors.selection : borderColor;
                 if (this.state.hover.node === node && this.state.connectionStart) this.ctx.strokeStyle = CONFIG.colors.connectionHover;
                 this.ctx.stroke();
 
-                // 4. ТЕКСТ ЗАГОЛОВКА
                 this.ctx.textAlign = 'left'; 
                 this.ctx.fillStyle = CONFIG.colors.text;
                 this.ctx.font = `bold ${Math.max(10, 13 * zoom)}px sans-serif`;
                 this.ctx.textBaseline = 'middle';
                 this.ctx.fillText(node.c || 'Node', pos.x + 10*zoom, pos.y + hh/2, w - 20);
 
-                // 5. ВХОДЯЩАЯ ТОЧКА (Input Dot)
-                // Рисуем строго посередине текущей высоты
+                // INPUT DOT (строго по центру ИТОГОВОЙ высоты)
                 this.ctx.beginPath();
                 this.ctx.arc(pos.x, pos.y + h/2, 5*zoom, -Math.PI/2, Math.PI/2);
                 this.ctx.fillStyle = '#555';
                 this.ctx.fill();
 
-                // 6. ВЫХОДЫ (Outputs)
                 if (node.outputs) {
                     const startY = hh + (5 * zoom); 
                     node.outputs.forEach((out, i) => this.drawOutput(node, out, i, pos, startY, outputNameColor));
                 }
 
-                // 7. ТЕГИ (FOOTER)
-                // Рисуем внизу ноды, отступая на высоту футера
                 if (node.t) {
                     this.ctx.textAlign = 'left';
                     this.ctx.fillStyle = CONFIG.colors.textDim;
                     this.ctx.font = `italic ${Math.max(9, 11 * zoom)}px sans-serif`;
-                    // Привязка к нижнему краю: y + h - половина футера
+                    // Тэги всегда в самом низу текущей высоты
                     this.ctx.fillText(node.t, pos.x + 10*zoom, pos.y + h - (fh/2) + 2);
                 }
 
-                // 8. ЗАТЕМНЕНИЕ (Disabled)
                 if (!node.e) {
                     this.ctx.fillStyle = 'rgba(0,0,0,0.5)';
                     this.ctx.fill();
                 }
-
                 this.ctx.restore();
             }
 
@@ -1373,13 +1446,21 @@
                 Object.entries(nodesByStringId).forEach(([strId, miniNode]) => {
                     const c3Sid = sidMap.get(strId);
                     
+                    const outputsCount = Array.isArray(miniNode.outputs) ? miniNode.outputs.length : 0;
+                    
+                    // РАСЧЕТ ВЫСОТЫ ПО СТАНДАРТУ CONSTRUCT 3
+                    // Шапка + (строки * 33) + Подвал + небольшой отступ
+                    const calcH = CONFIG.dims.headerH + (outputsCount * CONFIG.dims.rowH) + CONFIG.dims.footerH + 10;
+
                     const c3Node = {
                         sid: c3Sid,
-                        pnSIDs: [], poSIDs: [], nodeSIDs: [], // Инициализация массивов
-                        x: 0, y: 0, w: 400, h: 250, // Дефолтные размеры
+                        pnSIDs: [], poSIDs: [], nodeSIDs: [],
+                        x: 0, y: 0, 
+                        w: 420,       // Стандартная ширина
+                        h: calcH,     // <--- Применяем рассчитанную высоту
                         t: miniNode.tag || "",
                         c: miniNode.caption || strId,
-                        s: (strId === miniJson.root), // Root -> Start node
+                        s: (strId === miniJson.root),
                         e: true,
                         ty: "dictionary", pi: 0, pr: false, prfsid: null, prfnsid: null,
                         outputs: []
