@@ -309,25 +309,27 @@
             colors: {
                 header: '#246aa2',
                 headerStart: '#4caf50',
+                outputNameDefault: '#4f99d4', 
                 borderDefault: '#000000',
                 selection: '#0078d4',
                 connection: '#666666',
                 connectionHover: '#ff9800',
                 connectionDefault: '#4caf50',
                 bgNode: '#2b2b2b',
-                grid: '#3a3a3a', // Цвет сетки
+                grid: '#3a3a3a',
                 text: '#ffffff',
                 textDim: '#888888'
             },
+            // ... остальное без изменений
             dims: {
                 nodeW: 420,
                 headerH: 30,
                 rowH: 24,
                 dotRadius: 5,
                 borderRadius: 6,
-                gridSize: 500 // Размер большой клетки
+                gridSize: 500
             },
-            zoom: { min: 0.05, max: 2, stepIn: 1.1, stepOut: 0.9 }, // Чуть расширил лимиты
+            zoom: { min: 0.05, max: 2, stepIn: 1.1, stepOut: 0.9 },
             clickThreshold: 50
         };
 
@@ -794,60 +796,68 @@
                 const rad = CONFIG.dims.borderRadius * this.view.zoom;
                 const hh = CONFIG.dims.headerH * this.view.zoom;
 
-                // Base Color logic
+                // 1. Цвет обводки (из UI State или черный)
                 let borderColor = CONFIG.colors.borderDefault;
                 if (this.data.ui.nodes[idx]?.node?.color) {
                     const c = this.data.ui.nodes[idx].node.color;
                     borderColor = `rgb(${c[0]*255}, ${c[1]*255}, ${c[2]*255})`;
                 }
+
+                // 2. Цвета для заголовка и текста
+                // Фон заголовка: Зеленый для старта, Темно-синий для остальных
+                const headerBgColor = node.s ? CONFIG.colors.headerStart : CONFIG.colors.header;
+                
+                // Цвет имени выхода: Зеленый для старта, Светло-синий для остальных (для читаемости)
+                const outputNameColor = node.s ? CONFIG.colors.headerStart : CONFIG.colors.outputNameDefault;
                 
                 this.ctx.save();
 
-                // Body
+                // Тело ноды
                 this.ctx.beginPath();
                 this.ctx.roundRect(pos.x, pos.y, w, h, rad);
                 this.ctx.fillStyle = CONFIG.colors.bgNode;
                 this.ctx.fill();
 
-                // Header
+                // Шапка (Header Background)
                 this.ctx.save();
                 this.ctx.clip();
-                this.ctx.fillStyle = node.s ? CONFIG.colors.headerStart : CONFIG.colors.header;
+                this.ctx.fillStyle = headerBgColor; // Используем темный цвет для фона
                 this.ctx.fillRect(pos.x, pos.y, w, hh);
                 this.ctx.restore();
 
-                // Outline
+                // Обводка
                 this.ctx.lineWidth = (node === this.state.selection.node) ? 3 : 1;
                 this.ctx.strokeStyle = (node === this.state.selection.node) ? CONFIG.colors.selection : borderColor;
                 if (this.state.hover.node === node && this.state.connectionStart) this.ctx.strokeStyle = CONFIG.colors.connectionHover;
                 this.ctx.stroke();
 
-                // --- TEXT RENDER (Explicitly Left Aligned) ---
+                // Текст заголовка (Caption)
                 this.ctx.textAlign = 'left'; 
                 this.ctx.fillStyle = CONFIG.colors.text;
                 this.ctx.font = `bold ${Math.max(10, 13 * this.view.zoom)}px sans-serif`;
                 this.ctx.textBaseline = 'middle';
                 this.ctx.fillText(node.c || 'Node', pos.x + 10*this.view.zoom, pos.y + hh/2, w - 20);
 
+                // Теги
                 if (node.t) {
                     this.ctx.fillStyle = CONFIG.colors.textDim;
                     this.ctx.font = `italic ${Math.max(9, 11 * this.view.zoom)}px sans-serif`;
                     this.ctx.fillText(node.t, pos.x + 10*this.view.zoom, pos.y + hh + 12*this.view.zoom);
                 }
 
-                // Input Dot (Left side)
+                // Входящая точка (Input Dot)
                 this.ctx.beginPath();
                 this.ctx.arc(pos.x, pos.y + h/2, 5*this.view.zoom, -Math.PI/2, Math.PI/2);
                 this.ctx.fillStyle = '#555';
                 this.ctx.fill();
 
-                // Outputs
+                // Выходы (Outputs) - передаем цвет текста
                 if (node.outputs) {
                     const startY = hh + (node.t ? 20 * this.view.zoom : 5 * this.view.zoom);
-                    node.outputs.forEach((out, i) => this.drawOutput(node, out, i, pos, startY));
+                    node.outputs.forEach((out, i) => this.drawOutput(node, out, i, pos, startY, outputNameColor));
                 }
 
-                // Disabled overlay
+                // Затемнение если выключено
                 if (!node.e) {
                     this.ctx.fillStyle = 'rgba(0,0,0,0.5)';
                     this.ctx.fill();
@@ -856,7 +866,7 @@
                 this.ctx.restore();
             }
 
-            drawOutput(node, out, idx, pos, startY) {
+            drawOutput(node, out, idx, pos, startY, nameColor) {
                 const rh = CONFIG.dims.rowH * this.view.zoom;
                 const yOff = startY + (idx * rh);
                 const textY = pos.y + yOff + rh/2;
@@ -864,16 +874,32 @@
                 // --- TEXT RENDER (Right Aligned) ---
                 this.ctx.textAlign = 'right';
                 
-                this.ctx.fillStyle = out.default ? '#8eff92' : '#ccc';
-                this.ctx.font = `${Math.max(9, 12 * this.view.zoom)}px sans-serif`;
+                // Начальная точка X (справа налево)
+                let currentX = pos.x + (node.w * this.view.zoom) - (15 * this.view.zoom);
+                const fontBaseSize = Math.max(9, 12 * this.view.zoom);
                 
-                let txt = out.name + (out.value ? `: ${out.value}` : '');
-                if (out.default) txt += ' (Default)';
-                
-                // Координата X: Правый край ноды минус отступ (15px * zoom) для точки
-                const rightEdgeX = pos.x + (node.w * this.view.zoom) - (15 * this.view.zoom);
-                
-                this.ctx.fillText(txt, rightEdgeX, textY);
+                // 1. (Default) - Зеленый
+                if (out.default) {
+                    this.ctx.font = `bold ${Math.max(8, 10 * this.view.zoom)}px sans-serif`;
+                    this.ctx.fillStyle = '#4caf50';
+                    const defText = ' (Default)';
+                    this.ctx.fillText(defText, currentX, textY);
+                    currentX -= this.ctx.measureText(defText).width;
+                }
+
+                // 2. Value - Серый
+                if (out.value) {
+                    this.ctx.font = `${fontBaseSize}px sans-serif`;
+                    this.ctx.fillStyle = '#ccc';
+                    const valText = `: ${out.value}`;
+                    this.ctx.fillText(valText, currentX, textY);
+                    currentX -= this.ctx.measureText(valText).width;
+                }
+
+                // 3. Name - Цвет переданный аргументом (Светло-синий или Зеленый)
+                this.ctx.font = `bold ${fontBaseSize}px sans-serif`;
+                this.ctx.fillStyle = nameColor; 
+                this.ctx.fillText(out.name, currentX, textY);
 
                 // Connector Dot
                 const cx = pos.x + node.w * this.view.zoom;
@@ -885,7 +911,6 @@
                 this.ctx.fill();
                 this.ctx.stroke();
                 
-                // Reset alignment back to default (just in case)
                 this.ctx.textAlign = 'left'; 
             }
 
