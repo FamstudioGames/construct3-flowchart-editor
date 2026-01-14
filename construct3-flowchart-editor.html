@@ -376,8 +376,16 @@
                     selection: { node: null, output: null },
                     dragNode: null,
                     connectionStart: null,
-                    hover: { node: null, output: null, connection: null }
+                    hover: { node: null, output: null, connection: null },
+
+                    // Смещение для драга и флаги ресайза
+                    dragOffset: null,
+                    resizing: false,
+                    resizeTarget: null,
+                    resizeDir: null
                 };
+                // Буфер обмена
+                this.clipboard = null; 
 
                 this.init();
             }
@@ -853,6 +861,64 @@
                 return { w: minW, h: minH };
             }
 
+            // --- CLIPBOARD OPERATIONS ---
+
+            copyNode(node) {
+                if (!node) return;
+                
+                // Находим индекс, чтобы скопировать также UI-данные (цвет)
+                const idx = this.data.flowchart.nodes.indexOf(node);
+                const uiNode = this.data.ui.nodes[idx];
+
+                // Глубокое копирование через JSON, чтобы разорвать ссылки
+                this.clipboard = {
+                    logic: JSON.parse(JSON.stringify(node)),
+                    ui: JSON.parse(JSON.stringify(uiNode))
+                };
+                
+                // console.log("Node copied to internal clipboard");
+            }
+
+            pasteNode(screenX, screenY) {
+                if (!this.clipboard) return;
+
+                const wp = Utils.screenToWorld(screenX, screenY, this.view.panX, this.view.panY, this.view.zoom);
+                
+                // 1. Подготовка логической ноды
+                const newNode = JSON.parse(JSON.stringify(this.clipboard.logic));
+                
+                // Генерируем новый SID ноды
+                newNode.sid = Utils.uuid();
+                
+                // Устанавливаем позицию (центр ноды под курсором)
+                newNode.x = wp.x;
+                newNode.y = wp.y;
+                
+                // Очищаем связи
+                newNode.pnSIDs = [];
+                newNode.poSIDs = [];
+                newNode.nodeSIDs = [];
+                
+                // Генерируем новые ID для выходов и сбрасываем их связи
+                if (newNode.outputs) {
+                    newNode.outputs.forEach(out => {
+                        out.sid = Utils.uuid(); // Новый ID выхода
+                        out.cnSID = null;       // Разрыв исходящей связи
+                    });
+                }
+
+                // 2. Подготовка UI данных
+                const newUiNode = JSON.parse(JSON.stringify(this.clipboard.ui));
+                
+                // Добавляем в модель
+                this.data.flowchart.nodes.push(newNode);
+                this.data.ui.nodes.push(newUiNode);
+
+                // Выделяем вставленную ноду
+                this.select(newNode);
+                this.render();
+            }
+
             // --- RENDERING ---
 
             render() {
@@ -1220,18 +1286,40 @@
                 const items = [];
                 const rect = this.canvas.getBoundingClientRect();
                 
+                // Проверяем, куда кликнули
+                const mx = e.clientX - rect.left;
+                const my = e.clientY - rect.top;
+
+                // Для Paste нам нужны экранные координаты мыши, сохраняем их в замыкании
+                const pasteX = mx;
+                const pasteY = my;
+
                 if (this.state.hover.connection) {
                     items.push({ txt: 'Delete Connection', fn: () => { this.state.hover.connection.output.cnSID = null; this.render(); }});
                 } else if (this.state.hover.node) {
                     const n = this.state.hover.node;
+                    // Действия с нодой
+                    items.push({ txt: 'Copy Node', fn: () => this.copyNode(n) }); // <--- COPY
                     items.push({ txt: 'Delete Node', fn: () => this.deleteNode(n) });
+                    items.push({ txt: '----------------', fn: () => {} }); // Separator simulation
                     items.push({ txt: n.e ? 'Disable' : 'Enable', fn: () => { n.e = !n.e; this.render(); }});
                     items.push({ txt: 'Set Start', fn: () => { this.data.flowchart.nodes.forEach(x=>x.s=false); n.s=true; this.render(); }});
                 } else {
+                    // Действия с холстом
                     items.push({ txt: 'Add Node', fn: () => this.addNode(e.clientX, e.clientY) });
+                    
+                    // <--- PASTE (Только если буфер не пуст)
+                    if (this.clipboard) {
+                        items.push({ txt: 'Paste Node', fn: () => this.pasteNode(pasteX, pasteY) });
+                    }
                 }
 
-                menu.innerHTML = items.map((i, idx) => `<div class="ctx-item" data-i="${idx}">${i.txt}</div>`).join('');
+                menu.innerHTML = items.map((i, idx) => {
+                    // Простая эмуляция разделителя
+                    if (i.txt.startsWith('---')) return `<div style="border-top:1px solid #444; margin:4px 0;"></div>`;
+                    return `<div class="ctx-item" data-i="${idx}">${i.txt}</div>`;
+                }).join('');
+                
                 menu.style.left = e.clientX + 'px';
                 menu.style.top = e.clientY + 'px';
                 menu.classList.add('active');
@@ -1717,15 +1805,60 @@
         };
 
         // 8. Hotkeys Handler
+        
+        // Перехват системного события копирования для очистки внутреннего буфера
+        document.addEventListener('copy', (e) => {
+            // Если событие произошло НЕ на body (например, в input или textarea), 
+            // значит пользователь копирует текст.
+            // Очищаем наш буфер нод, чтобы Ctrl+V потом не вставил ноду вместо текста.
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+                app.clipboard = null;
+            }
+        });
+
         document.addEventListener('keydown', (e) => {
-            // Ctrl+S / Cmd+S
-            if ((e.ctrlKey || e.metaKey) && e.code === 'KeyS') {
+            // Игнорируем хоткеи, если фокус в поле ввода
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+            const isCtrl = e.ctrlKey || e.metaKey; // Windows Ctrl or Mac Cmd
+
+            // Save: Ctrl+S
+            if (isCtrl && e.code === 'KeyS') {
                 e.preventDefault(); 
                 if (e.shiftKey) {
                     saveAsStubAction();
                 } else {
                     saveStubAction();
                 }
+            }
+
+            // Copy: Ctrl+C
+            if (isCtrl && e.code === 'KeyC') {
+                // Копируем только если есть выделенная нода и мы в режиме редактирования
+                if (app.state.mode === 'edit' && app.state.selection.node) {
+                    // e.preventDefault() здесь не обязательно, но полезно, чтобы не копировать "ничего" в системный буфер
+                    app.copyNode(app.state.selection.node);
+                }
+            }
+
+            // Paste: Ctrl+V
+            if (isCtrl && e.code === 'KeyV') {
+                if (app.state.mode === 'edit' && app.clipboard) {
+                    // Вставляем в позицию последнего известного положения мыши (относительно канваса)
+                    // app.state.lastMouse хранит clientX/Y
+                    const rect = app.canvas.getBoundingClientRect();
+                    const mx = app.state.lastMouse.x - rect.left;
+                    const my = app.state.lastMouse.y - rect.top;
+                    
+                    app.pasteNode(mx, my);
+                }
+            }
+            
+            // Delete: Del key
+            if (e.code === 'Delete') {
+                 if (app.state.mode === 'edit' && app.state.selection.node) {
+                     app.deleteNode(app.state.selection.node);
+                 }
             }
         });
 
