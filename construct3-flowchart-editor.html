@@ -564,8 +564,19 @@
                     if (e.button === 0) {
                         if (this.state.mode === 'edit') {
                             // 1. Приоритет на Output (Создание связи)
-                            const hitNode = this.hitTestNode(mx, my);
-                            const hitOut = hitNode ? this.hitTestOutput(hitNode, mx, my) : null;
+                            // Сначала ищем попадание в точку выхода (она важнее и может выходить за границы ноды)
+                            let hitNode = this.hitTestNode(mx, my);
+                            let hitOut = null;
+
+                            for (let i = this.data.flowchart.nodes.length - 1; i >= 0; i--) {
+                                const n = this.data.flowchart.nodes[i];
+                                const res = this.hitTestOutput(n, mx, my);
+                                if (res) {
+                                    hitOut = res;
+                                    hitNode = n; // Если попали в точку, обновляем контекст ноды
+                                    break;
+                                }
+                            }
 
                             if (hitNode && hitOut) {
                                 this.state.connectionStart = { node: hitNode, output: hitOut.output };
@@ -713,8 +724,23 @@
 
                     // Е. Hover эффекты (без кнопок)
                     if (this.state.mode === 'edit') {
-                        const hitNode = this.hitTestNode(mx, my);
-                        const hitOut = hitNode ? this.hitTestOutput(hitNode, mx, my) : null;
+                        // Сохраняем предыдущее состояние, чтобы понять, нужна ли перерисовка
+                        const prevHoverOut = this.state.hover.output;
+                        const prevHoverNode = this.state.hover.node;
+
+                        let hitNode = this.hitTestNode(mx, my);
+                        let hitOut = null;
+
+                        // Цикл поиска hitOut (из предыдущего фикса)
+                        for (let i = this.data.flowchart.nodes.length - 1; i >= 0; i--) {
+                            const n = this.data.flowchart.nodes[i];
+                            const res = this.hitTestOutput(n, mx, my);
+                            if (res) {
+                                hitOut = res;
+                                hitNode = n;
+                                break;
+                            }
+                        }
                         
                         this.state.hover.node = hitNode;
                         this.state.hover.output = hitOut;
@@ -731,6 +757,13 @@
                             }
                         } else {
                              this.canvas.style.cursor = hitNode ? 'grab' : 'default';
+                        }
+                        // Если объект под курсором изменился, перерисовываем холст
+                        const outputChanged = (prevHoverOut?.output !== hitOut?.output);
+                        const nodeChanged = (prevHoverNode !== hitNode);
+                        
+                        if (outputChanged || nodeChanged) {
+                            this.render();
                         }
                     }
                     this.state.lastMouse = { x: e.clientX, y: e.clientY };
@@ -876,7 +909,7 @@
                 
                 const startY = sp.y + CONFIG.dims.headerH * this.view.zoom + (5 * this.view.zoom);
                 const dotX = sp.x + node.w * this.view.zoom;
-                const r = 20 * this.view.zoom; 
+                const r = 25 * this.view.zoom; 
 
                 for (let i = 0; i < node.outputs.length; i++) {
                     const dotY = startY + (i * CONFIG.dims.rowH * this.view.zoom) + (CONFIG.dims.rowH * this.view.zoom / 2);
@@ -1500,7 +1533,15 @@
                 
                 this.ctx.beginPath();
                 this.ctx.arc(cx, cy, CONFIG.dims.dotRadius * this.view.zoom, 0, Math.PI*2);
-                this.ctx.fillStyle = (this.state.hover.output?.output === out) ? '#fff' : (out.cnSID ? CONFIG.colors.selection : '#444');
+
+                // Используем #fff для hover
+                if (this.state.hover.output?.output === out) {
+                    this.ctx.fillStyle = '#fff'; 
+                } else {
+                    // Если есть связь - цвет selection (синий), иначе - серый #444
+                    this.ctx.fillStyle = out.cnSID ? CONFIG.colors.selection : '#444';
+                }
+
                 this.ctx.fill();
                 this.ctx.stroke();
                 
