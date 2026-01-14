@@ -5,1857 +5,1491 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Construct 3 Flowchart Editor</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        :root {
+            --bg-dark: #2b2b2b;
+            --bg-panel: #1e1e1e;
+            --bg-menu: #3c3c3c;
+            --border: #3a3a3a;
+            --accent: #0078d4;
+            --accent-hover: #106ebe;
+            --text-main: #e0e0e0;
+            --text-dim: #888;
+            --danger: #ff5555;
+            --success: #4caf50;
+            --warn: #ff9800;
         }
 
+        * { margin: 0; padding: 0; box-sizing: border-box; outline: none; }
+        
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
-            background: #2b2b2b;
-            color: #e0e0e0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-main);
             overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
         }
+
+        /* --- UI COMPONENTS --- */
+        .btn {
+            padding: 8px 16px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: background 0.2s;
+        }
+        .btn:hover:not(:disabled) { background: var(--accent-hover); }
+        .btn:disabled { background: #555; cursor: not-allowed; opacity: 0.6; }
+        .btn.small { padding: 4px 8px; font-size: 11px; }
+        .btn.danger { background: var(--danger); }
 
         /* --- MENU BAR --- */
         #menu-bar {
-            background: #3c3c3c;
-            display: flex;
-            font-size: 13px;
-            border-bottom: 1px solid #1e1e1e;
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            z-index: 1000;
+            background: var(--bg-menu);
             height: 30px;
+            display: flex;
             align-items: center;
+            border-bottom: 1px solid #1e1e1e;
             user-select: none;
+            z-index: 1000;
+            font-size: 13px;
         }
 
         .menu-item {
             padding: 0 15px;
-            cursor: pointer;
-            position: relative;
             height: 100%;
             display: flex;
             align-items: center;
+            cursor: pointer;
+            position: relative;
         }
-
         .menu-item:hover { background: #505050; }
-        .menu-item.active { background: #0078d4 !important; }
+        .menu-item.active { background: var(--accent) !important; }
 
         .dropdown {
             display: none;
             position: absolute;
-            top: 30px;
-            left: 0;
+            top: 30px; left: 0;
             background: #2d2d2d;
             border: 1px solid #454545;
             min-width: 200px;
             box-shadow: 0 4px 10px rgba(0,0,0,0.5);
             z-index: 1001;
         }
+        .dropdown-item { padding: 8px 20px; cursor: pointer; color: var(--text-main); }
+        .dropdown-item:hover:not(.disabled) { background: var(--accent); }
+        .dropdown-item.disabled { opacity: 0.5; cursor: default; }
+        .separator { height: 1px; background: #454545; margin: 4px 0; }
 
-        .dropdown-item { 
-            padding: 8px 20px;
-            cursor: pointer; 
-            color: #e0e0e0; 
+        /* --- SUBMENU --- */
+        .dropdown-item {
+            position: relative; /* Для позиционирования подменю */
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
 
-        .dropdown-item:hover:not(.disabled) { background: #0078d4; }
-        .dropdown-item.disabled { 
-            cursor: default; 
-            opacity: 0.5;
+        .dropdown-item .shortcut {
+            color: #888;
+            font-size: 11px;
+            margin-left: 20px;
         }
 
-        .separator {
-            height: 1px; 
-            background: #454545; 
-            margin: 4px 0;
+        .dropdown-item .arrow {
+            font-size: 10px;
+            color: #aaa;
+            margin-left: 10px;
+        }
+
+        /* Скрываем подменю по умолчанию */
+        .submenu {
+            display: none;
+            position: absolute;
+            left: 100%; /* Появляется справа от родителя */
+            top: -5px;  /* Чуть выше для выравнивания */
+            background: #2d2d2d;
+            border: 1px solid #454545;
+            min-width: 220px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            z-index: 1002;
+        }
+
+        /* Показываем подменю при наведении на родительский пункт */
+        .dropdown-item:hover > .submenu {
+            display: block;
         }
 
         /* --- TOOLBAR --- */
-        .toolbar {
+        #toolbar {
             display: none;
-            gap: 5px;
-            padding: 10px;
-            background: #1e1e1e;
-            border-bottom: 1px solid #3a3a3a;
-            flex-wrap: wrap;
-            position: fixed;
-            top: 30px;
-            left: 0;
-            right: 350px;
-            z-index: 50;
+            background: var(--bg-panel);
+            padding: 8px;
+            border-bottom: 1px solid var(--border);
+            gap: 10px;
         }
+        #toolbar.active { display: flex; }
+        .toolbar-group { display: flex; gap: 5px; padding-right: 10px; border-right: 1px solid #555; }
+        .toolbar-group:last-child { border: none; }
 
-        .toolbar.active {
+        /* --- MAIN AREA --- */
+        #workspace {
+            position: relative;
+            flex: 1;
             display: flex;
-        }
-
-        .toolbar-group {
-            display: flex;
-            gap: 5px;
-            padding-right: 10px;
-            border-right: 1px solid #555;
-        }
-
-        .toolbar-group:last-child {
-            border-right: none;
-        }
-
-        button {
-            padding: 10px 20px;
-            background: #0078d4;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-weight: 500;
-            transition: background 0.2s;
-        }
-
-        button.small-btn {
-            padding: 4px 8px;
-            font-size: 11px;
-        }
-
-        button:hover:not(:disabled) {
-            background: #106ebe;
-        }
-
-        button:disabled {
-            background: #555;
-            cursor: not-allowed;
-            opacity: 0.5;
-        }
-
-        /* --- CANVAS --- */
-        #canvas-container {
-            position: fixed;
-            top: 30px;
-            left: 0;
-            right: 0; /* Default right, changed in JS for edit mode */
-            bottom: 0;
             overflow: hidden;
-            transition: right 0.2s;
         }
 
-        canvas {
-            cursor: grab;
-            background: #2b2b2b;
+        #canvas-container {
+            flex: 1;
+            position: relative;
+            background: var(--bg-dark);
+            overflow: hidden;
         }
-
-        canvas:active {
-            cursor: grabbing;
-        }
-
-        canvas.editing {
-            cursor: default;
-        }
+        
+        canvas { display: block; cursor: grab; }
+        canvas:active { cursor: grabbing; }
+        canvas.editing { cursor: default; }
 
         /* --- PROPERTIES PANEL --- */
         #properties-panel {
-            position: fixed;
-            top: 30px;
-            right: 0;
             width: 350px;
-            bottom: 0;
-            background: #1e1e1e;
-            border-left: 1px solid #3a3a3a;
+            background: var(--bg-panel);
+            border-left: 1px solid var(--border);
             overflow-y: auto;
             padding: 15px;
             display: none;
             z-index: 40;
         }
+        #properties-panel.active { display: block; }
 
-        #properties-panel.active {
-            display: block;
-        }
-
-        .property-group {
-            margin-bottom: 20px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid #3a3a3a;
-        }
-
-        .property-group h3 {
-            margin-bottom: 10px;
-            color: #0078d4;
-            font-size: 14px;
-        }
-
-        .property-row {
-            margin-bottom: 10px;
-        }
-
-        .property-row label {
-            display: block;
-            margin-bottom: 5px;
-            font-size: 12px;
-            color: #888;
-        }
-
-        .property-row input[type="text"],
-        .property-row input[type="number"],
-        .property-row textarea,
-        .property-row select {
-            width: 100%;
-            padding: 8px;
-            background: #333;
-            border: 1px solid #555;
-            border-radius: 4px;
-            color: #e0e0e0;
+        .prop-group { margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+        .prop-group h3 { margin-bottom: 10px; color: var(--accent); font-size: 14px; }
+        .prop-row { margin-bottom: 10px; }
+        .prop-row label { display: block; margin-bottom: 5px; font-size: 12px; color: var(--text-dim); }
+        
+        input[type="text"], input[type="number"], textarea, select {
+            width: 100%; padding: 8px;
+            background: #333; border: 1px solid #555;
+            border-radius: 4px; color: var(--text-main);
             font-family: inherit;
         }
-
-        .property-row input[type="checkbox"] {
-            width: 18px;
-            height: 18px;
-            cursor: pointer;
-        }
-
-        .property-row input[type="color"] {
-            width: 100%;
-            height: 40px;
-            cursor: pointer;
-            border: 1px solid #555;
-            border-radius: 4px;
-        }
+        textarea { min-height: 60px; resize: vertical; font-family: monospace; line-height: 1.4; }
+        input[type="color"] { width: 100%; height: 35px; border: 1px solid #555; cursor: pointer; }
 
         /* --- OUTPUT ITEMS --- */
         .output-item {
-            background: #2a2a2a;
-            padding: 10px;
-            margin-bottom: 10px;
-            border-radius: 4px;
-            border-left: 3px solid #0078d4;
+            background: #2a2a2a; padding: 10px; margin-bottom: 10px;
+            border-radius: 4px; border-left: 3px solid var(--accent);
         }
+        .output-item.default { border-left-color: var(--success); }
+        .output-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 
-        .output-item.default {
-            border-left-color: #4caf50;
-        }
-
-        .output-item-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 8px;
-        }
-
-        .output-item-controls {
-            display: flex;
-            gap: 5px;
-        }
-
-        /* --- CONTEXT MENU --- */
-        .context-menu {
-            position: fixed;
-            background: #2a2a2a;
-            border: 1px solid #555;
-            border-radius: 4px;
-            padding: 5px 0;
-            z-index: 2000;
-            display: none;
-            min-width: 180px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-        }
-
-        .context-menu.active {
-            display: block;
-        }
-
-        .context-menu-item {
-            padding: 8px 15px;
-            cursor: pointer;
-            font-size: 13px;
-            transition: background 0.2s;
-        }
-
-        .context-menu-item:hover {
-            background: #3a3a3a;
-        }
-
-        .context-menu-item.separator {
-            border-top: 1px solid #555;
-            margin: 5px 0;
-            padding: 0;
-            cursor: default;
-        }
-
-        /* --- MISC --- */
-        .selection-rect {
-            stroke: #0078d4;
-            stroke-width: 2;
-            stroke-dasharray: 5, 5;
-            fill: rgba(0, 120, 212, 0.1);
-        }
-
+        /* --- OVERLAYS --- */
         #mode-indicator {
-            position: fixed;
-            top: 40px;
-            left: 10px;
-            background: rgba(30, 30, 30, 0.9);
-            padding: 8px 12px;
-            border-radius: 4px;
-            font-size: 12px;
-            z-index: 50;
-            font-weight: bold;
+            position: absolute; top: 10px; left: 10px;
+            background: rgba(30,30,30,0.9); padding: 6px 10px;
+            border-radius: 4px; font-size: 12px; font-weight: bold; pointer-events: none;
         }
-
-        #mode-indicator.view-mode { color: #4caf50; }
-        #mode-indicator.edit-mode { color: #ff9800; }
+        .view-mode { color: var(--success); }
+        .edit-mode { color: var(--warn); }
 
         .zoom-info {
-            position: fixed;
-            bottom: 10px;
-            left: 10px;
-            background: rgba(30, 30, 30, 0.9);
-            padding: 8px 12px;
-            border-radius: 4px;
-            font-size: 12px;
-            z-index: 50;
+            position: absolute; bottom: 10px; left: 10px;
+            background: rgba(30,30,30,0.9); padding: 8px;
+            border-radius: 4px; font-size: 12px; pointer-events: none;
         }
 
-        .property-row textarea {
-            min-height: 60px;
-            resize: vertical;
-            font-family: monospace;
-            line-height: 1.4;
+        #context-menu {
+            position: fixed; background: #2a2a2a;
+            border: 1px solid #555; border-radius: 4px;
+            padding: 5px 0; z-index: 2000; display: none;
+            min-width: 180px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);
         }
+        #context-menu.active { display: block; }
+        .ctx-item { padding: 8px 15px; cursor: pointer; font-size: 13px; }
+        .ctx-item:hover { background: #3a3a3a; }
     </style>
 </head>
 <body>
-    <!-- MENU BAR -->
+
+    <!-- MENUS -->
     <div id="menu-bar">
-        <!-- File Menu -->
-        <div class="menu-item" id="fileMenuBtn">
-            File
+        <div class="menu-item" data-menu="file">File
             <div class="dropdown" id="fileDropdown">
-                <div id="importTrigger" class="dropdown-item">Import (*.json, *.uistate.json)</div>
+                <!-- Basic Operations (Stubs) -->
+                <div id="btn-new" class="dropdown-item">New</div>
+                <div id="btn-open" class="dropdown-item">Open...</div>
+                
                 <div class="separator"></div>
-                <div id="menuSaveBtn" class="dropdown-item disabled">Save</div>
-                <div id="menuSaveAsBtn" class="dropdown-item disabled">Save As...</div>
+                
+                <div id="btn-save-stub" class="dropdown-item">Save <span class="shortcut">Ctrl+S</span></div>
+                <div id="btn-save-as-stub" class="dropdown-item">Save As... <span class="shortcut">Shift+Ctrl+S</span></div>
+
+                <div class="separator"></div>
+
+                <!-- IMPORT Submenu -->
+                <div class="dropdown-item">
+                    Import
+                    <span class="arrow">▶</span>
+                    <div class="submenu">
+                        <div id="btn-import-c3" class="dropdown-item">Import (*.json & *.uistate.json)</div>
+                        <div id="btn-import-mini" class="dropdown-item">Import MiniFlow (*.miniflow.json)</div>
+                    </div>
+                </div>
+
+                <!-- EXPORT Submenu -->
+                <div class="dropdown-item">
+                    Export
+                    <span class="arrow">▶</span>
+                    <div class="submenu">
+                        <div id="btn-export-c3" class="dropdown-item">Export (*.json & *.uistate.json)</div>
+                        <div id="btn-export-mini" class="dropdown-item">Export MiniFlow (*.miniflow.json)</div>
+                    </div>
+                </div>
             </div>
         </div>
-
-        <!-- Edit Menu -->
-        <div class="menu-item" id="editMenuBtn" style="opacity: 0.5; pointer-events: none;">
-            Edit
+        <div class="menu-item" id="menu-edit-wrapper" style="opacity: 0.5; pointer-events: none;">Edit
             <div class="dropdown" id="editDropdown">
-                <div id="toggleEditModeBtn" class="dropdown-item">Enter Edit Mode</div>
-                <div id="menuCancelEditBtn" class="dropdown-item" style="color: #ff5555; display: none;">Cancel Editing</div>
+                <div id="btn-toggle-mode" class="dropdown-item">Enter Edit Mode</div>
+                <div id="btn-cancel-edit" class="dropdown-item" style="color: var(--danger); display: none;">Cancel Editing</div>
             </div>
         </div>
-
-        <!-- View Menu -->
-        <div class="menu-item" id="viewMenuBtn">
-            View
+        <div class="menu-item" data-menu="view">View
             <div class="dropdown" id="viewDropdown">
-                <div id="menuResetViewBtn" class="dropdown-item">Reset View</div>
+                <div id="btn-reset-view" class="dropdown-item">Reset View</div>
             </div>
         </div>
-
-        <!-- Status Info -->
-        <div id="status" style="margin-left: 20px; font-size: 11px; color: #aaa;">No flowchart imported</div>
-        <div id="current-filename" style="margin-left: auto; padding-right: 15px; color: #0078d4; font-size: 11px; font-weight: bold;"></div>
+        <div id="status-bar" style="margin-left: 20px; font-size: 11px; color: #aaa;">No flowchart loaded</div>
+        <div id="filename-display" style="margin-left: auto; padding-right: 15px; color: var(--accent); font-size: 11px; font-weight: bold;"></div>
     </div>
 
-    <!-- TOOLBAR (Edit Mode Only) -->
-    <div class="toolbar" id="toolbar">
+    <!-- TOOLBAR -->
+    <div id="toolbar">
         <div class="toolbar-group">
-            <button class="small-btn" id="addNodeBtn">Add Node</button>
-            <button class="small-btn" id="deleteNodeBtn" disabled>Delete Node</button>
+            <button class="btn small" id="tool-add-node">Add Node</button>
+            <button class="btn small" id="tool-del-node" disabled>Delete Node</button>
         </div>
         <div class="toolbar-group">
-            <button class="small-btn" id="addOutputBtn" disabled>Add Output</button>
-            <button class="small-btn" id="deleteOutputBtn" disabled>Delete Output</button>
+            <button class="btn small" id="tool-add-out" disabled>Add Output</button>
+            <button class="btn small" id="tool-del-out" disabled>Delete Output</button>
         </div>
         <div class="toolbar-group">
-            <button class="small-btn" id="enableNodeBtn" disabled>Enable/Disable</button>
-            <button class="small-btn" id="setStartBtn" disabled>Set as Start</button>
+            <button class="btn small" id="tool-enable" disabled>Enable/Disable</button>
+            <button class="btn small" id="tool-start" disabled>Set Start</button>
         </div>
     </div>
 
-    <!-- Hidden File Input -->
-    <input type="file" id="jsonFiles" accept=".json" multiple style="display: none;">
-
-    <div id="mode-indicator" class="view-mode">VIEW MODE</div>
-
-    <div id="canvas-container">
-        <canvas id="canvas"></canvas>
-    </div>
-
-    <div id="properties-panel">
-        <div class="property-group">
-            <h3>No Selection</h3>
-            <p style="color: #888; font-size: 13px;">Select a node or output to edit properties</p>
+    <!-- WORKSPACE -->
+    <div id="workspace">
+        <div id="canvas-container">
+            <canvas id="canvas"></canvas>
+            <div id="mode-indicator" class="view-mode">VIEW MODE</div>
+            <div class="zoom-info">
+                <div>Zoom: <span id="zoom-level">100%</span></div>
+                <div id="edit-hint" style="display:none; color: var(--warn); margin-top:4px;">Right-click for options</div>
+            </div>
+        </div>
+        <div id="properties-panel">
+            <div class="prop-group"><h3>No Selection</h3></div>
         </div>
     </div>
 
-    <div class="zoom-info">
-        <div>Zoom: <span id="zoomLevel">100%</span></div>
-        <div>Pan: Drag | Zoom: Ctrl+Scroll</div>
-        <div id="editHint" style="display: none; margin-top: 5px; color: #ff9800;">
-            Right-click for options
-        </div>
-    </div>
-
-    <div id="contextMenu" class="context-menu"></div>
+    <!-- HIDDEN & OVERLAYS -->
+    <input type="file" id="file-input" accept=".json" multiple style="display: none;">
+    <input type="file" id="file-input-mini" accept=".json" style="display: none;">
+    <div id="context-menu"></div>
 
     <script>
-        class FlowchartEditor {
-            constructor(canvasId) {
-                this.canvas = document.getElementById(canvasId);
-                if (!this.canvas) {
-                    console.error(`Canvas element with id "${canvasId}" not found!`);
-                    return;
-                }
-                this.ctx = this.canvas.getContext('2d');
-                this.flowchartData = null;
-                this.uiStateData = null;
-                this.originalData = null;
-                
-                this.zoom = 1;
-                this.panX = 0;
-                this.panY = 0;
-                this.isDragging = false;
-                this.lastMouseX = 0;
-                this.lastMouseY = 0;
+        // --- CONFIGURATION ---
+        const CONFIG = {
+            colors: {
+                header: '#246aa2',
+                headerStart: '#4caf50',
+                borderDefault: '#000000',
+                selection: '#0078d4',
+                connection: '#666666',
+                connectionHover: '#ff9800',
+                connectionDefault: '#4caf50',
+                bgNode: '#2b2b2b',
+                grid: '#3a3a3a', // Цвет сетки
+                text: '#ffffff',
+                textDim: '#888888'
+            },
+            dims: {
+                nodeW: 420,
+                headerH: 30,
+                rowH: 24,
+                dotRadius: 5,
+                borderRadius: 6,
+                gridSize: 500 // Размер большой клетки
+            },
+            zoom: { min: 0.05, max: 2, stepIn: 1.1, stepOut: 0.9 }, // Чуть расширил лимиты
+            clickThreshold: 50
+        };
 
-                this.editMode = false;
-                this.selectedNode = null;
-                this.selectedOutput = null;
-                this.selectedOutputIndex = -1;
-                this.draggedNode = null;
-                this.connectionStart = null;
-                this.hoveredNode = null;
-                this.hoveredOutput = null;
-                this.selectionRect = null;
-
-                this.setupCanvas();
-                this.setupEventListeners();
-            }
-
-            setupCanvas() {
-                const container = this.canvas.parentElement;
-                if (!container) return;
-                this.canvas.width = container.clientWidth;
-                this.canvas.height = container.clientHeight;
-            }
-
-            setupEventListeners() {
-                window.addEventListener('resize', () => {
-                    this.setupCanvas();
-                    this.render();
-                });
-                
-                this.canvas.addEventListener('mousedown', (e) => this.handleMouseDown(e));
-                this.canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
-                this.canvas.addEventListener('mouseup', (e) => this.handleMouseUp(e));
-                this.canvas.addEventListener('mouseleave', () => {
-                    this.isDragging = false;
-                    this.draggedNode = null;
-                });
-
-                this.canvas.addEventListener('wheel', (e) => {
-                    if (e.ctrlKey) {
-                        e.preventDefault();
-                        const delta = e.deltaY > 0 ? 0.9 : 1.1;
-                        this.zoom *= delta;
-                        this.zoom = Math.max(0.1, Math.min(5, this.zoom));
-                        document.getElementById('zoomLevel').textContent = Math.round(this.zoom * 100) + '%';
-                        this.render();
-                    }
-                });
-
-                this.canvas.addEventListener('contextmenu', (e) => {
-                    e.preventDefault();
-                    if (this.editMode) {
-                        this.showContextMenu(e);
-                    }
-                });
-
-                // Close context menu on click outside
-                document.addEventListener('click', () => {
-                    const ctxMenu = document.getElementById('contextMenu');
-                    if(ctxMenu) ctxMenu.classList.remove('active');
-                });
-            }
-
-            handleMouseDown(e) {
-                const rect = this.canvas.getBoundingClientRect();
-                const mouseX = e.clientX - rect.left;
-                const mouseY = e.clientY - rect.top;
-
-                console.log(`[MouseDown] Screen: ${mouseX}, ${mouseY}`);
-
-                if (this.editMode) {
-                    // Check if clicking on a node
-                    const clickedNode = this.getNodeAtPosition(mouseX, mouseY);
-                    
-                    if (clickedNode) {
-                        console.log(`[MouseDown] Clicked Node ID: ${clickedNode.sid}`);
-                        
-                        // Check if clicking on output
-                        const outputData = this.getOutputAtPosition(clickedNode, mouseX, mouseY);
-                        
-                        if (outputData) {
-                            console.log(`[MouseDown] Output selected: ${outputData.output.name}`);
-                            this.connectionStart = { node: clickedNode, output: outputData.output };
-                        } else {
-                            console.log(`[MouseDown] Dragging node started`);
-                            this.selectNode(clickedNode);
-                            this.draggedNode = clickedNode;
-                        }
-                        this.render();
-                        return;
-                    } else {
-                        console.log(`[MouseDown] Clicked empty space (Deselect)`);
-                        this.deselectAll();
-                    }
-                }
-
-                // Pan mode
-                this.isDragging = true;
-                this.lastMouseX = e.clientX;
-                this.lastMouseY = e.clientY;
-            }
-
-            handleMouseMove(e) {
-                const rect = this.canvas.getBoundingClientRect();
-                const mouseX = e.clientX - rect.left;
-                const mouseY = e.clientY - rect.top;
-
-                // 1. Pan (Перемещение холста)
-                if (this.isDragging && !this.editMode) {
-                    const dx = e.clientX - this.lastMouseX;
-                    const dy = e.clientY - this.lastMouseY;
-                    this.panX += dx;
-                    this.panY += dy;
-                    this.lastMouseX = e.clientX;
-                    this.lastMouseY = e.clientY;
-                    this.render();
-                    return;
-                } 
-                
-                // 2. Drag Node (Перемещение ноды)
-                if (this.draggedNode && this.editMode) {
-                    const worldPos = this.screenToWorld(mouseX, mouseY);
-                    this.draggedNode.x = worldPos.x - this.draggedNode.w / 2;
-                    this.draggedNode.y = worldPos.y - 15;
-                    this.render();
-                    return;
-                } 
-                
-                // 3. Creating Connection (Тянем связь)
-                if (this.connectionStart) {
-                    // Обновляем hoveredNode для подсветки цели
-                    this.hoveredNode = this.getNodeAtPosition(mouseX, mouseY);
-                    
-                    // Если не нашли точно под курсором, ищем ближайшую (магнитизм)
-                    if (!this.hoveredNode) {
-                        this.hoveredNode = this.getClosestNodeNearPosition(mouseX, mouseY, 50);
-                    }
-                    
-                    // Проверяем, что это не та же самая нода (нельзя соединить с самим собой)
-                    if (this.hoveredNode === this.connectionStart.node) {
-                        this.hoveredNode = null;
-                    }
-                    
-                    // Временный дебаг (раскомментируйте, если нужно видеть каждый кадр, но будет спамить)
-                    // if(this.hoveredNode) console.log(`[MouseMove] Hovering target: ${this.hoveredNode.sid}`);
-
-                    this.render();
-                    
-                    // Рисуем пунктирную линию
-                    const startPos = this.getOutputPosition(this.connectionStart.node, 
-                        this.connectionStart.node.outputs.indexOf(this.connectionStart.output));
-                    this.ctx.save();
-                    this.ctx.strokeStyle = '#ffffff';
-                    this.ctx.lineWidth = 2;
-                    this.ctx.setLineDash([5, 5]);
-                    this.ctx.beginPath();
-                    this.ctx.moveTo(startPos.x, startPos.y);
-                    
-                    // Если есть hoveredNode, рисуем линию до центра левой стороны ноды
-                    if (this.hoveredNode) {
-                        const endPos = this.worldToScreen(this.hoveredNode.x, 
-                            this.hoveredNode.y + this.hoveredNode.h / 2);
-                        this.ctx.lineTo(endPos.x, endPos.y);
-                    } else {
-                        // Иначе рисуем до курсора
-                        this.ctx.lineTo(mouseX, mouseY);
-                    }
-                    
-                    this.ctx.stroke();
-                    this.ctx.restore();
-                    return;
-                }
-
-                // 4. Hover State (Обычный режим редактирования)
-                if (this.editMode) {
-                    this.hoveredNode = this.getNodeAtPosition(mouseX, mouseY);
-                    
-                    if (this.hoveredNode) {
-                        this.hoveredOutput = this.getOutputAtPosition(this.hoveredNode, mouseX, mouseY);
-                        this.hoveredConnection = null;
-                    } else {
-                        this.hoveredOutput = null;
-                        this.hoveredConnection = this.getConnectionAtPosition(mouseX, mouseY);
-                    }
-                    this.render();
-                }
-            }
-
-            // --- НОВЫЙ МЕТОД: Поиск связи под курсором ---
-            getConnectionAtPosition(mouseX, mouseY) {
-                if (!this.flowchartData?.nodes) return null;
-                const threshold = 5; // Дистанция захвата
-
-                for (const node of this.flowchartData.nodes) {
-                    if (!node.outputs) continue;
-                    for (let i = 0; i < node.outputs.length; i++) {
-                        const output = node.outputs[i];
-                        if (output.cnSID && output.enable) {
-                            const targetNode = this.flowchartData.nodes.find(n => n.sid === output.cnSID);
-                            if (targetNode) {
-                                const start = this.getOutputPosition(node, i);
-                                // Вход в целевую ноду всегда слева по центру
-                                const end = this.worldToScreen(targetNode.x, targetNode.y + (targetNode.h / 2));
-                                
-                                // Проверяем дистанцию до кривой Безье
-                                if (this.isPointNearBezier(mouseX, mouseY, start, end, threshold)) {
-                                    return { node, output, index: i };
-                                }
-                            }
-                        }
-                    }
-                }
-                return null;
-            }
-
-            // --- НОВЫЙ МЕТОД: Математика попадания в кривую ---
-            isPointNearBezier(px, py, p0, p3, threshold) {
-                // Контрольные точки (такие же как при рисовании)
+        // --- MATH UTILS ---
+        const Utils = {
+            screenToWorld: (sx, sy, panX, panY, zoom) => ({ x: (sx - panX) / zoom, y: (sy - panY) / zoom }),
+            worldToScreen: (wx, wy, panX, panY, zoom) => ({ x: wx * zoom + panX, y: wy * zoom + panY }),
+            dist: (p1, p2) => Math.hypot(p1.x - p2.x, p1.y - p2.y),
+            isPointInRect: (px, py, rx, ry, rw, rh) => px >= rx && px <= rx + rw && py >= ry && py <= ry + rh,
+            isPointNearBezier: (px, py, p0, p3, threshold) => {
                 const cpDist = Math.abs(p3.x - p0.x) * 0.5;
                 const p1 = { x: p0.x + cpDist, y: p0.y };
                 const p2 = { x: p3.x - cpDist, y: p3.y };
-
-                // Проходим по кривой с шагом (не идеально точно, но быстро)
                 const steps = 20;
                 for (let i = 0; i <= steps; i++) {
                     const t = i / steps;
                     const it = 1 - t;
-                    // Формула кубической кривой Безье
                     const x = it*it*it*p0.x + 3*it*it*t*p1.x + 3*it*t*t*p2.x + t*t*t*p3.x;
                     const y = it*it*it*p0.y + 3*it*it*t*p1.y + 3*it*t*t*p2.y + t*t*t*p3.y;
-
-                    const dist = Math.sqrt((px - x)**2 + (py - y)**2);
-                    if (dist < threshold) return true;
+                    if (Math.hypot(px - x, py - y) < threshold) return true;
                 }
                 return false;
+            },
+            uuid: () => Date.now() + Math.floor(Math.random() * 1000000)
+        };
+
+        class FlowchartEditor {
+            constructor(canvasId) {
+                this.canvas = document.getElementById(canvasId);
+                this.ctx = this.canvas.getContext('2d');
+                
+                // Data
+                this.data = { flowchart: null, ui: null, original: null };
+                
+                // Viewport State
+                this.view = { zoom: 1, panX: 0, panY: 0 };
+                
+                // Interaction State
+                this.state = {
+                    mode: 'view', // 'view' or 'edit'
+                    dragging: false,
+                    lastMouse: { x: 0, y: 0 },
+                    selection: { node: null, output: null },
+                    dragNode: null,
+                    connectionStart: null,
+                    hover: { node: null, output: null, connection: null }
+                };
+
+                this.init();
             }
 
-             handleMouseUp(e) {
+            init() {
+                this.resize();
+                window.addEventListener('resize', () => { this.resize(); this.render(); });
+                this.bindEvents();
+            }
+
+            resize() {
+                const parent = this.canvas.parentElement;
+                this.canvas.width = parent.clientWidth;
+                this.canvas.height = parent.clientHeight;
+            }
+
+            bindEvents() {
+                const c = this.canvas;
+                c.addEventListener('mousedown', e => this.handleInput('down', e));
+                c.addEventListener('mousemove', e => this.handleInput('move', e));
+                c.addEventListener('mouseup', e => this.handleInput('up', e));
+                c.addEventListener('mouseleave', () => { this.state.dragging = false; this.state.dragNode = null; });
+                
+                c.addEventListener('wheel', e => {
+                    if (e.ctrlKey) {
+                        e.preventDefault();
+                        
+                        const rect = c.getBoundingClientRect();
+                        const mx = e.clientX - rect.left;
+                        const my = e.clientY - rect.top;
+
+                        // 1. Получаем координаты мира ПОД курсором ДО зума
+                        const worldX = (mx - this.view.panX) / this.view.zoom;
+                        const worldY = (my - this.view.panY) / this.view.zoom;
+
+                        // 2. Вычисляем новый зум
+                        const f = e.deltaY > 0 ? CONFIG.zoom.stepOut : CONFIG.zoom.stepIn;
+                        const newZoom = Math.max(CONFIG.zoom.min, Math.min(CONFIG.zoom.max, this.view.zoom * f));
+
+                        // 3. Вычисляем новый Pan так, чтобы точка мира осталась под курсором
+                        // mx = worldX * newZoom + newPanX  =>  newPanX = mx - worldX * newZoom
+                        this.view.panX = mx - worldX * newZoom;
+                        this.view.panY = my - worldY * newZoom;
+                        this.view.zoom = newZoom;
+
+                        document.getElementById('zoom-level').textContent = Math.round(this.view.zoom * 100) + '%';
+                        this.render();
+                    }
+                });
+
+                c.addEventListener('contextmenu', e => {
+                    e.preventDefault();
+                    if (this.state.mode === 'edit') this.showContextMenu(e);
+                });
+
+                document.addEventListener('click', () => document.getElementById('context-menu').classList.remove('active'));
+            }
+
+            // --- INPUT HANDLING ---
+
+            handleInput(type, e) {
                 const rect = this.canvas.getBoundingClientRect();
-                const mouseX = e.clientX - rect.left;
-                const mouseY = e.clientY - rect.top;
+                const mx = e.clientX - rect.left;
+                const my = e.clientY - rect.top;
 
-                // Если мы тащили связь
-                if (this.connectionStart) {
-                    console.log(`[MouseUp] Finishing connection...`);
-                    
-                    // 1. Сначала пробуем взять ноду, которую мы подсвечивали (hoveredNode)
-                    let targetNode = this.hoveredNode;
+                if (type === 'down') {
+                    if (this.state.mode === 'edit') {
+                        const hitNode = this.hitTestNode(mx, my);
+                        const hitOut = hitNode ? this.hitTestOutput(hitNode, mx, my) : null;
 
-                    // 2. Если hoveredNode пуст (например, мышь дернулась слишком быстро),
-                    // пробуем найти ближайшую ноду принудительно
-                    if (!targetNode) {
-                        console.log(`[MouseUp] No hoveredNode found, forcing search near ${mouseX}, ${mouseY}`);
-                        targetNode = this.getClosestNodeNearPosition(mouseX, mouseY, 50);
-                    }
-
-                    if (targetNode) {
-                         console.log(`[MouseUp] Target Candidate: ${targetNode.sid} (Source: ${this.connectionStart.node.sid})`);
-                    } else {
-                         console.log(`[MouseUp] No target node found within range.`);
-                    }
-                    
-                    // Если нашли ноду (targetNode) и это не та же самая нода
-                    if (targetNode && targetNode !== this.connectionStart.node) {
-                        const sourceNode = this.connectionStart.node;
-                        const output = this.connectionStart.output;
-
-                        console.log(`[MouseUp] Connecting! ${sourceNode.sid} -> ${targetNode.sid}`);
-
-                        // 1. Присваиваем выходу ID целевой ноды
-                        output.cnSID = targetNode.sid;
-
-                        // 2. Обновляем списки входящих связей у целевой ноды
-                        if (!targetNode.pnSIDs) targetNode.pnSIDs = [];
-                        if (!targetNode.poSIDs) targetNode.poSIDs = [];
-
-                        // Добавляем ID родительской ноды, если его там нет
-                        if (!targetNode.pnSIDs.includes(sourceNode.sid)) {
-                            targetNode.pnSIDs.push(sourceNode.sid);
+                        if (hitNode && hitOut) {
+                            this.state.connectionStart = { node: hitNode, output: hitOut.output };
+                        } else if (hitNode) {
+                            this.select(hitNode);
+                            this.state.dragNode = hitNode;
+                        } else {
+                            this.select(null);
                         }
-                        // Добавляем ID выхода, если его там нет
-                        if (!targetNode.poSIDs.includes(output.sid)) {
-                            targetNode.poSIDs.push(output.sid);
-                        }
-                    } else {
-                        console.log(`[MouseUp] Connection aborted (Target invalid or self-connect)`);
+                        this.render();
                     }
-                    
-                    // Сброс состояния
-                    this.connectionStart = null;
-                    this.hoveredNode = null;
+                    if (!this.state.dragNode && !this.state.connectionStart) {
+                        this.state.dragging = true;
+                    }
+                    this.state.lastMouse = { x: e.clientX, y: e.clientY };
+                } 
+                else if (type === 'move') {
+                    if (this.state.mode === 'edit') {
+                        this.state.hover.node = this.hitTestNode(mx, my);
+                        this.state.hover.output = this.state.hover.node ? this.hitTestOutput(this.state.hover.node, mx, my) : null;
+                        this.state.hover.connection = (!this.state.hover.node) ? this.hitTestConnection(mx, my) : null;
+                    }
+
+                    if (this.state.dragging) {
+                        this.view.panX += e.clientX - this.state.lastMouse.x;
+                        this.view.panY += e.clientY - this.state.lastMouse.y;
+                    } else if (this.state.dragNode) {
+                        const wp = Utils.screenToWorld(mx, my, this.view.panX, this.view.panY, this.view.zoom);
+                        
+                        // --- ИСПРАВЛЕНИЕ: Блокировка отрицательных координат ---
+                        let newX = wp.x - this.state.dragNode.w / 2;
+                        let newY = wp.y - 15;
+                        
+                        // Не даем уйти влево и вверх за 0
+                        if (newX < 0) newX = 0;
+                        if (newY < 0) newY = 0;
+
+                        this.state.dragNode.x = newX;
+                        this.state.dragNode.y = newY;
+                    }
+
+                    this.state.lastMouse = { x: e.clientX, y: e.clientY };
                     this.render();
+                } 
+                else if (type === 'up') {
+                    if (this.state.connectionStart) {
+                        let target = this.state.hover.node || this.findClosestNode(mx, my);
+                        if (target && target !== this.state.connectionStart.node) {
+                            this.connect(this.state.connectionStart.node, this.state.connectionStart.output, target);
+                        }
+                        this.state.connectionStart = null;
+                        this.render();
+                    }
+                    this.state.dragging = false;
+                    this.state.dragNode = null;
                 }
-
-                this.isDragging = false;
-                this.draggedNode = null;
             }
 
-            getNodeAtPositionFromWorld(worldX, worldY) {
-                if (!this.flowchartData || !this.flowchartData.nodes) return null;
-                
-                // Идем с конца массива (чтобы выбирать верхнюю ноду, если они перекрываются)
-                for (let i = this.flowchartData.nodes.length - 1; i >= 0; i--) {
-                    const node = this.flowchartData.nodes[i];
-                    
-                    // Простая проверка попадания точки в прямоугольник в мировых координатах
-                    if (worldX >= node.x && 
-                        worldX <= node.x + node.w &&
-                        worldY >= node.y && 
-                        worldY <= node.y + node.h) {
-                        return node;
-                    }
+            // --- HIT TESTING ---
+
+            hitTestNode(mx, my) {
+                if (!this.data.flowchart) return null;
+                const wp = Utils.screenToWorld(mx, my, this.view.panX, this.view.panY, this.view.zoom);
+                // Iterate backwards (topmost first)
+                for (let i = this.data.flowchart.nodes.length - 1; i >= 0; i--) {
+                    const n = this.data.flowchart.nodes[i];
+                    if (Utils.isPointInRect(wp.x, wp.y, n.x, n.y, n.w, n.h)) return n;
                 }
                 return null;
             }
 
-            getClosestNodeNearPosition(screenX, screenY, maxDistance = 50) {
-                if (!this.flowchartData || !this.flowchartData.nodes) return null;
-                
-                const worldPos = this.screenToWorld(screenX, screenY);
-                let closestNode = null;
-                let closestDistance = Infinity;
-                
-                // Ищем самую близкую ноду в пределах maxDistance
-                for (const node of this.flowchartData.nodes) {
-                    // Центр ноды
-                    const centerX = node.x + node.w / 2;
-                    const centerY = node.y + node.h / 2;
-                    
-                    // Расстояние до центра ноды
-                    const distance = Math.sqrt(
-                        Math.pow(worldPos.x - centerX, 2) + 
-                        Math.pow(worldPos.y - centerY, 2)
-                    );
-                    
-                    if (distance < closestDistance && distance < maxDistance) {
-                        closestDistance = distance;
-                        closestNode = node;
-                    }
-                }
-                
-                return closestNode;
-            }
-
-            screenToWorld(screenX, screenY) {
-                return {
-                    x: (screenX - this.panX) / this.zoom,
-                    y: (screenY - this.panY) / this.zoom
-                };
-            }
-
-            worldToScreen(x, y) {
-                return {
-                    x: x * this.zoom + this.panX,
-                    y: y * this.zoom + this.panY
-                };
-            }
-
-            getNodeAtPosition(screenX, screenY) {
-                if (!this.flowchartData || !this.flowchartData.nodes) return null;
-                
-                // Переводим координаты экрана в координаты мира (с учетом зума и панорамирования)
-                const worldPos = this.screenToWorld(screenX, screenY);
-                
-                // Идем с конца массива (чтобы выбирать верхнюю ноду, если они перекрываются)
-                for (let i = this.flowchartData.nodes.length - 1; i >= 0; i--) {
-                    const node = this.flowchartData.nodes[i];
-                    
-                    // Простая проверка попадания точки в прямоугольник
-                    if (worldPos.x >= node.x && 
-                        worldPos.x <= node.x + node.w &&
-                        worldPos.y >= node.y && 
-                        worldPos.y <= node.y + node.h) {
-                        return node;
-                    }
-                }
-                return null;
-            }
-
-            getOutputAtPosition(node, screenX, screenY) {
+            hitTestOutput(node, mx, my) {
                 if (!node.outputs) return null;
-                
-                const pos = this.worldToScreen(node.x, node.y);
-                const width = node.w * this.zoom;
-                const headerHeight = 30 * this.zoom;
-                
-                // Рассчитываем стартовую Y позицию для выходов
-                const startY = pos.y + headerHeight + (node.t ? 20 * this.zoom : 5 * this.zoom);
-                
+                const sp = Utils.worldToScreen(node.x, node.y, this.view.panX, this.view.panY, this.view.zoom);
+                const startY = sp.y + CONFIG.dims.headerH * this.view.zoom + (node.t ? 20 * this.view.zoom : 5 * this.view.zoom);
+                const dotX = sp.x + node.w * this.view.zoom;
+                const r = 15 * this.view.zoom; // Touch area radius
+
                 for (let i = 0; i < node.outputs.length; i++) {
-                    // Позиция кружочка подключения (справа от ноды)
-                    const outputY = startY + (i * 24 * this.zoom) + (12 * this.zoom);
-                    const outputX = pos.x + width;
-                    
-                    // Расстояние до кружочка подключения
-                    const dist = Math.sqrt(Math.pow(screenX - outputX, 2) + Math.pow(screenY - outputY, 2));
-                    
-                    // Увеличиваем область клика (было 10, станет 15 с учетом zoom)
-                    if (dist < 15 * this.zoom) {
-                        return { output: node.outputs[i], index: i };
+                    const dotY = startY + (i * CONFIG.dims.rowH * this.view.zoom) + (12 * this.view.zoom);
+                    if (Math.hypot(mx - dotX, my - dotY) < r) return { output: node.outputs[i], index: i };
+                }
+                return null;
+            }
+
+            hitTestConnection(mx, my) {
+                if (!this.data.flowchart) return null;
+                for (const node of this.data.flowchart.nodes) {
+                    if (!node.outputs) continue;
+                    for (let i = 0; i < node.outputs.length; i++) {
+                        const out = node.outputs[i];
+                        if (out.cnSID && out.enable) {
+                            const target = this.data.flowchart.nodes.find(n => n.sid === out.cnSID);
+                            if (target) {
+                                const pStart = this.getOutputPos(node, i);
+                                const pEnd = Utils.worldToScreen(target.x, target.y + target.h / 2, this.view.panX, this.view.panY, this.view.zoom);
+                                if (Utils.isPointNearBezier(mx, my, pStart, pEnd, 5)) return { output: out };
+                            }
+                        }
                     }
                 }
                 return null;
             }
 
-            getOutputPosition(node, outputIndex) {
-                const outputY = node.y + 60 + (outputIndex * 30);
-                return this.worldToScreen(node.x + node.w, outputY);
-            }
-
-            selectNode(node) {
-                this.selectedNode = node;
-                this.selectedOutput = null;
-                this.selectedOutputIndex = -1;
-                this.updatePropertiesPanel();
-                this.updateToolbarButtons();
-            }
-
-            deselectAll() {
-                this.selectedNode = null;
-                this.selectedOutput = null;
-                this.selectedOutputIndex = -1;
-                this.updatePropertiesPanel();
-                this.updateToolbarButtons();
-                this.render();
-            }
-
-            updateToolbarButtons() {
-                const hasNode = this.selectedNode !== null;
-                const delNodeBtn = document.getElementById('deleteNodeBtn');
-                const addOutBtn = document.getElementById('addOutputBtn');
-                const delOutBtn = document.getElementById('deleteOutputBtn');
-                const enNodeBtn = document.getElementById('enableNodeBtn');
-                const startBtn = document.getElementById('setStartBtn');
-
-                if(delNodeBtn) delNodeBtn.disabled = !hasNode;
-                if(addOutBtn) addOutBtn.disabled = !hasNode;
-                if(delOutBtn) delOutBtn.disabled = !hasNode || !this.selectedOutput;
-                if(enNodeBtn) enNodeBtn.disabled = !hasNode;
-                if(startBtn) startBtn.disabled = !hasNode;
-            }
-
-            showContextMenu(e) {
-                const menu = document.getElementById('contextMenu');
-                
-                let menuItems = [];
-
-                // 1. Если клик по СВЯЗИ
-                if (this.hoveredConnection) {
-                    menuItems = [
-                        { 
-                            label: 'Delete Connection', 
-                            action: () => this.deleteConnection(this.hoveredConnection) 
-                        }
-                    ];
-                }
-                // 2. Если клик по НОДЕ
-                else {
-                    const rect = this.canvas.getBoundingClientRect();
-                    const mouseX = e.clientX - rect.left;
-                    const mouseY = e.clientY - rect.top;
-                    const clickedNode = this.getNodeAtPosition(mouseX, mouseY);
-
-                    if (clickedNode) {
-                        menuItems = [
-                            { label: 'Add Output', action: () => this.addOutput(clickedNode) },
-                            { label: 'Delete Node', action: () => this.deleteNode(clickedNode) },
-                            { separator: true },
-                            { label: clickedNode.e ? 'Disable Node' : 'Enable Node', 
-                            action: () => this.toggleNodeEnabled(clickedNode) },
-                            { label: 'Set as Start Node', action: () => this.setStartNode(clickedNode) },
-                            { separator: true },
-                            { label: 'Edit Caption', action: () => this.editCaption(clickedNode) },
-                        ];
-                    } else {
-                        menuItems = [
-                            { label: 'Add Node', action: () => this.addNodeAt(mouseX, mouseY) },
-                        ];
-                    }
-                }
-
-                // Рендер меню
-                menu.innerHTML = menuItems.map(item => {
-                    if (item.separator) {
-                        return '<div class="context-menu-item separator"></div>';
-                    }
-                    return `<div class="context-menu-item" data-action="${menuItems.indexOf(item)}">${item.label}</div>`;
-                }).join('');
-
-                menu.style.left = e.clientX + 'px';
-                menu.style.top = e.clientY + 'px';
-                menu.classList.add('active');
-
-                // Обработчики
-                menu.querySelectorAll('.context-menu-item:not(.separator)').forEach(item => {
-                    item.addEventListener('click', (evt) => {
-                        evt.stopPropagation();
-                        const index = parseInt(item.dataset.action);
-                        menuItems[index].action();
-                        menu.classList.remove('active');
-                    });
+            findClosestNode(mx, my) {
+                const wp = Utils.screenToWorld(mx, my, this.view.panX, this.view.panY, this.view.zoom);
+                let closest = null, minDist = CONFIG.clickThreshold;
+                this.data.flowchart.nodes.forEach(n => {
+                    const d = Utils.dist(wp, { x: n.x + n.w/2, y: n.y + n.h/2 });
+                    if (d < minDist) { minDist = d; closest = n; }
                 });
+                return closest;
             }
 
-             // --- НОВЫЙ МЕТОД: Удаление связи ---
-            deleteConnection(connectionInfo) {
-                if (!connectionInfo || !connectionInfo.output) return;
-                
-                // Разрываем связь
-                connectionInfo.output.cnSID = null;
-                
-                // Также нужно удалить pnSID у целевой ноды (для чистоты данных, хотя Construct 3 может это перестроить сам)
-                // Но в JSON структуре pnSIDs (Parent Node SIDs) хранит входящие.
-                // Это сложнее отследить, но для визуального разрыва достаточно cnSID = null.
-                
-                this.hoveredConnection = null;
-                this.render();
+            getOutputPos(node, idx) {
+                const wy = node.y + 60 + (idx * 30);
+                return Utils.worldToScreen(node.x + node.w, wy, this.view.panX, this.view.panY, this.view.zoom);
             }
 
-            addNodeAt(screenX, screenY) {
-                const worldPos = this.screenToWorld(screenX, screenY);
+            // --- LOGIC & CRUD ---
+
+            connect(source, output, target) {
+                output.cnSID = target.sid;
+                // Note: Full connectivity (pnSIDs etc) is rebuilt on save to ensure consistency
+            }
+
+            select(node) {
+                this.state.selection.node = node;
+                // Update UI
+                const panel = document.getElementById('properties-panel');
+                if (node) this.generateProperties(node);
+                else panel.innerHTML = '<div class="prop-group"><h3>No Selection</h3></div>';
+                
+                // Update Toolbar
+                document.getElementById('tool-del-node').disabled = !node;
+                document.getElementById('tool-add-out').disabled = !node;
+                document.getElementById('tool-del-out').disabled = true; 
+                document.getElementById('tool-enable').disabled = !node;
+                document.getElementById('tool-start').disabled = !node;
+            }
+
+            addNode(screenX, screenY) {
+                const wp = Utils.screenToWorld(screenX, screenY, this.view.panX, this.view.panY, this.view.zoom);
+                
+                // 1. Logic Node Structure (matches backup)
                 const newNode = {
-                    sid: Date.now() + Math.floor(Math.random() * 1000000),
-                    pnSIDs: [],
-                    poSIDs: [],
-                    nodeSIDs: [],
-                    outputs: [
-                        {
-                            sid: Date.now() + Math.floor(Math.random() * 1000000) + 1,
-                            cnSID: null,
-                            name: "Option 1",
-                            value: "Value 1",
-                            enable: true,
-                            default: false
-                        }
-                    ],
-                    x: worldPos.x - 210,
-                    y: worldPos.y - 66,
-                    w: 420,
-                    h: 132,
-                    t: "",
-                    s: false,
-                    e: true,
-                    pi: 0,
-                    c: "New Node",
-                    ty: "dictionary",
-                    pr: false,
-                    prfsid: null,
-                    prfnsid: null
-                };
-
-                this.flowchartData.nodes.push(newNode);
-                
-                // Add UI state
-                if (!this.uiStateData.nodes) this.uiStateData.nodes = [];
-                this.uiStateData.nodes.push({
-                    node: {
-                        propertiesBar: {},
-                        nodeTable: {},
-                        color: [0.8, 0.8, 0.8, 1]
-                    },
-                    outputs: [{
-                        color: [0, 0, 0, 1],
-                        linkMode: "line",
-                        propertiesBar: {}
+                    sid: Utils.uuid(), 
+                    pnSIDs: [], poSIDs: [], nodeSIDs: [],
+                    x: wp.x - 210, y: wp.y - 66, w: 420, h: 132,
+                    t: "", s: false, e: true, c: "New Node",
+                    pi: 0, ty: "dictionary", pr: false, prfsid: null, prfnsid: null,
+                    outputs: [{ 
+                        sid: Utils.uuid()+1, 
+                        cnSID: null, 
+                        name: "Option 1", 
+                        value: "", 
+                        enable: true, 
+                        default: false 
                     }]
-                });
-
-                this.selectNode(newNode);
-                this.render();
-            }
-
-            addOutput(node) {
-                if (!node) node = this.selectedNode;
-                if (!node) return;
-
-                const newOutput = {
-                    sid: Date.now() + Math.floor(Math.random() * 1000000),
-                    cnSID: null,
-                    name: `Option ${node.outputs.length + 1}`,
-                    value: `Value ${node.outputs.length + 1}`,
-                    enable: true,
-                    default: false
                 };
+                
+                this.data.flowchart.nodes.push(newNode);
 
-                node.outputs.push(newOutput);
-                node.h += 30;
-
-                // Update UI state
-                const nodeIndex = this.flowchartData.nodes.indexOf(node);
-                if (this.uiStateData.nodes[nodeIndex]) {
-                    this.uiStateData.nodes[nodeIndex].outputs.push({
-                        color: [0, 0, 0, 1],
-                        linkMode: "line",
-                        propertiesBar: {}
-                    });
-                }
-
-                this.selectNode(node);
+                // 2. UI State Structure (matches backup)
+                this.data.ui.nodes.push({ 
+                    node: { 
+                        propertiesBar: {}, 
+                        nodeTable: {}, 
+                        color: [0.8, 0.8, 0.8, 1] 
+                    }, 
+                    outputs: [{ 
+                        color: [0, 0, 0, 1], 
+                        linkMode: "line", 
+                        propertiesBar: {} 
+                    }] 
+                });
+                
+                this.select(newNode);
                 this.render();
             }
 
             deleteNode(node) {
-                if (!node) node = this.selectedNode;
                 if (!node) return;
-
-                const index = this.flowchartData.nodes.indexOf(node);
-                if (index > -1) {
-                    // Remove connections
-                    this.flowchartData.nodes.forEach(n => {
-                        if (n.outputs) {
-                            n.outputs.forEach(output => {
-                                if (output.cnSID === node.sid) {
-                                    output.cnSID = null;
-                                }
-                            });
-                        }
-                        if (n.pnSIDs) {
-                            n.pnSIDs = n.pnSIDs.filter(sid => sid !== node.sid);
-                        }
+                const idx = this.data.flowchart.nodes.indexOf(node);
+                if (idx > -1) {
+                    // Cleanup connections
+                    this.data.flowchart.nodes.forEach(n => {
+                        n.outputs?.forEach(o => { if (o.cnSID === node.sid) o.cnSID = null; });
+                        // We will rebuild pnSIDs on save, but removing dangling IDs here helps
+                        n.pnSIDs = n.pnSIDs?.filter(id => id !== node.sid);
+                        n.nodeSIDs = n.nodeSIDs?.filter(id => id !== node.sid);
                     });
-
-                    this.flowchartData.nodes.splice(index, 1);
-                    if (this.uiStateData.nodes) {
-                        this.uiStateData.nodes.splice(index, 1);
-                    }
                     
-                    this.deselectAll();
-                    this.render();
-                }
-            }
-
-            toggleNodeEnabled(node) {
-                if (!node) node = this.selectedNode;
-                if (!node) return;
-
-                node.e = !node.e;
-                this.updatePropertiesPanel();
-                this.render();
-            }
-
-            setStartNode(node) {
-                if (!node) node = this.selectedNode;
-                if (!node) return;
-
-                // Remove start from all other nodes
-                this.flowchartData.nodes.forEach(n => n.s = false);
-                node.s = true;
-                this.render();
-            }
-
-            editCaption(node) {
-                if (!node) node = this.selectedNode;
-                if (!node) return;
-
-                const newCaption = prompt('Enter new caption:', node.c);
-                if (newCaption !== null) {
-                    node.c = newCaption;
-                    this.updatePropertiesPanel();
-                    this.render();
-                }
-            }
-
-            updatePropertiesPanel() {
-                const panel = document.getElementById('properties-panel');
-                
-                if (!this.selectedNode) {
-                    panel.innerHTML = `
-                        <div class="property-group">
-                            <h3>No Selection</h3>
-                            <p style="color: #888; font-size: 13px;">Select a node to edit properties</p>
-                        </div>
-                    `;
-                    return;
-                }
-
-                const node = this.selectedNode;
-                const nodeIndex = this.flowchartData.nodes.indexOf(node);
-
-                panel.innerHTML = `
-                    <div class="property-group">
-                        <h3>Node Properties</h3>
-                        <div class="property-row">
-                            <label>Caption</label>
-                            <input type="text" id="prop-caption" value="${node.c || ''}" />
-                        </div>
-                        <div class="property-row">
-                            <label>Tags (space-separated)</label>
-                            <input type="text" id="prop-tags" value="${node.t || ''}" />
-                        </div>
-                        <div class="property-row">
-                            <label>
-                                <input type="checkbox" id="prop-enabled" ${node.e ? 'checked' : ''} />
-                                Enabled
-                            </label>
-                        </div>
-                        <div class="property-row">
-                            <label>
-                                <input type="checkbox" id="prop-start" ${node.s ? 'checked' : ''} />
-                                Start Node
-                            </label>
-                        </div>
-                        <div class="property-row">
-                            <label>Border Color</label>
-                            <input type="color" id="prop-color" />
-                        </div>
-                    </div>
-
-                    <div class="property-group">
-                        <h3>Outputs</h3>
-                        <div id="outputs-list"></div>
-                        <button class="small-btn" id="add-output-btn" style="margin-top: 10px; width: 100%;">Add Output</button>
-                    </div>
-                `;
-
-                // Set color value
-                if (this.uiStateData.nodes[nodeIndex]?.node?.color) {
-                    const c = this.uiStateData.nodes[nodeIndex].node.color;
-                    const hex = '#' + [c[0], c[1], c[2]].map(v => 
-                        Math.round(v * 255).toString(16).padStart(2, '0')
-                    ).join('');
-                    document.getElementById('prop-color').value = hex;
-                }
-
-                // Add event listeners
-                document.getElementById('prop-caption').addEventListener('input', (e) => {
-                    node.c = e.target.value;
-                    this.render();
-                });
-
-                document.getElementById('prop-tags').addEventListener('input', (e) => {
-                    node.t = e.target.value;
-                    this.render();
-                });
-
-                document.getElementById('prop-enabled').addEventListener('change', (e) => {
-                    node.e = e.target.checked;
-                    this.render();
-                });
-
-                document.getElementById('prop-start').addEventListener('change', (e) => {
-                    if (e.target.checked) {
-                        this.flowchartData.nodes.forEach(n => n.s = false);
-                        node.s = true;
-                    }
-                    this.render();
-                });
-
-                document.getElementById('prop-color').addEventListener('input', (e) => {
-                    const hex = e.target.value;
-                    const r = parseInt(hex.slice(1, 3), 16) / 255;
-                    const g = parseInt(hex.slice(3, 5), 16) / 255;
-                    const b = parseInt(hex.slice(5, 7), 16) / 255;
+                    // Remove from both logic and UI arrays at the same index
+                    this.data.flowchart.nodes.splice(idx, 1);
+                    this.data.ui.nodes.splice(idx, 1);
                     
-                    if (!this.uiStateData.nodes[nodeIndex]) {
-                        this.uiStateData.nodes[nodeIndex] = { node: {}, outputs: [] };
-                    }
-                    if (!this.uiStateData.nodes[nodeIndex].node) {
-                        this.uiStateData.nodes[nodeIndex].node = {};
-                    }
-                    this.uiStateData.nodes[nodeIndex].node.color = [r, g, b, 1];
+                    this.select(null);
                     this.render();
-                });
-
-                document.getElementById('add-output-btn').addEventListener('click', () => {
-                    this.addOutput(node);
-                });
-
-                // Render outputs
-                this.renderOutputsList(node, nodeIndex);
-            }
-
-            renderOutputsList(node, nodeIndex) {
-                const container = document.getElementById('outputs-list');
-                if (!container) return;
-
-                container.innerHTML = node.outputs.map((output, i) => {
-                    // Подготавливаем значение для отображения: заменяем символы \n на реальные переносы
-                    const displayValue = (output.value || '').replace(/\\n/g, '\n');
-
-                    return `
-                    <div class="output-item ${output.default ? 'default' : ''}">
-                        <div class="output-item-header">
-                            <strong>Output ${i + 1}</strong>
-                            <div class="output-item-controls">
-                                <button class="small-btn" data-output="${i}" data-action="delete">Delete</button>
-                            </div>
-                        </div>
-                        <div class="property-row">
-                            <label>Name</label>
-                            <input type="text" data-output="${i}" data-field="name" value="${output.name || ''}" />
-                        </div>
-                        <div class="property-row">
-                            <label>Value (Multi-line)</label>
-                            <textarea data-output="${i}" data-field="value">${displayValue}</textarea>
-                        </div>
-                        <div class="property-row">
-                            <label>
-                                <input type="checkbox" data-output="${i}" data-field="enabled" ${output.enable ? 'checked' : ''} />
-                                Enabled
-                            </label>
-                        </div>
-                        <div class="property-row">
-                            <label>
-                                <input type="checkbox" data-output="${i}" data-field="default" ${output.default ? 'checked' : ''} />
-                                Default Output
-                            </label>
-                        </div>
-                    </div>
-                `}).join('');
-
-                // Обработчики событий
-                container.querySelectorAll('[data-output]').forEach(input => {
-                    const outputIndex = parseInt(input.dataset.output);
-                    const field = input.dataset.field;
-
-                    if (input.type === 'checkbox') {
-                        input.addEventListener('change', (e) => {
-                            if (field === 'enabled') {
-                                node.outputs[outputIndex].enable = e.target.checked;
-                            } else if (field === 'default') {
-                                node.outputs.forEach(o => o.default = false);
-                                node.outputs[outputIndex].default = e.target.checked;
-                            }
-                            this.renderOutputsList(node, nodeIndex);
-                            this.render();
-                        });
-                    } else if (input.tagName.toLowerCase() === 'textarea') {
-                        // Обработка Textarea
-                        input.addEventListener('input', (e) => {
-                            // При сохранении заменяем реальные переносы обратно на символы \n
-                            const rawValue = e.target.value;
-                            node.outputs[outputIndex][field] = rawValue.replace(/\n/g, '\\n');
-                            this.render();
-                        });
-                    } else {
-                        // Обычные инпуты (Name)
-                        input.addEventListener('input', (e) => {
-                            node.outputs[outputIndex][field] = e.target.value;
-                            this.render();
-                        });
-                    }
-                });
-
-                container.querySelectorAll('button[data-action="delete"]').forEach(btn => {
-                    btn.addEventListener('click', () => {
-                        const outputIndex = parseInt(btn.dataset.output);
-                        node.outputs.splice(outputIndex, 1);
-                        node.h -= 30;
-                        if (this.uiStateData.nodes[nodeIndex]?.outputs) {
-                            this.uiStateData.nodes[nodeIndex].outputs.splice(outputIndex, 1);
-                        }
-                        this.renderOutputsList(node, nodeIndex);
-                        this.render();
-                    });
-                });
-            }
-
-            enterEditMode() {
-                this.editMode = true;
-                this.originalData = {
-                    flowchart: JSON.parse(JSON.stringify(this.flowchartData)),
-                    uistate: JSON.parse(JSON.stringify(this.uiStateData))
-                };
-
-                this.canvas.classList.add('editing');
-                document.getElementById('toolbar').classList.add('active');
-                document.getElementById('properties-panel').classList.add('active');
-                document.getElementById('editHint').style.display = 'block';
-                
-                const modeIndicator = document.getElementById('mode-indicator');
-                modeIndicator.textContent = 'EDIT MODE';
-                modeIndicator.className = 'edit-mode';
-                
-                // Adjust canvas container to make room for properties panel
-                document.getElementById('canvas-container').style.right = '350px';
-                
-                this.setupCanvas();
-                this.render();
-            }
-
-            exitEditMode(save = false) {
-                if (!save) {
-                    // Restore original data
-                    this.flowchartData = this.originalData.flowchart;
-                    this.uiStateData = this.originalData.uistate;
                 }
-
-                this.editMode = false;
-                this.originalData = null;
-                this.deselectAll();
-
-                this.canvas.classList.remove('editing');
-                document.getElementById('toolbar').classList.remove('active');
-                document.getElementById('properties-panel').classList.remove('active');
-                document.getElementById('editHint').style.display = 'none';
-                
-                const modeIndicator = document.getElementById('mode-indicator');
-                modeIndicator.textContent = 'VIEW MODE';
-                modeIndicator.className = 'view-mode';
-                
-                document.getElementById('canvas-container').style.right = '0';
-                this.setupCanvas();
-                this.render();
             }
 
-            // --- НОВЫЙ МЕТОД: Полная пересборка структуры перед сохранением ---
-            rebuildConnectivity() {
-                // 1. Очистка служебных массивов у всех нод
-                this.flowchartData.nodes.forEach(node => {
-                    node.pnSIDs = [];   // Parent Node SIDs (Входящие ноды)
-                    node.poSIDs = [];   // Parent Output SIDs (Входящие выходы)
-                    node.nodeSIDs = []; // Child Node SIDs (Исходящие ноды)
-                    
-                    // Округление координат (Construct любит целые числа)
-                    node.x = Math.round(node.x);
-                    node.y = Math.round(node.y);
-                });
-
-                // 2. Генерация связей на основе outputs (Источник правды)
-                this.flowchartData.nodes.forEach(sourceNode => {
-                    if (!sourceNode.outputs) return;
-
-                    sourceNode.outputs.forEach(output => {
-                        // Если у выхода есть подключение
-                        if (output.cnSID) {
-                            // Ищем целевую ноду
-                            const targetNode = this.flowchartData.nodes.find(n => n.sid === output.cnSID);
-                            
-                            if (targetNode) {
-                                // A. Записываем ребенка в родителя (Source -> Target)
-                                // Проверяем дубликаты, хотя C3 иногда допускает их, лучше избегать
-                                if (!sourceNode.nodeSIDs.includes(targetNode.sid)) {
-                                    sourceNode.nodeSIDs.push(targetNode.sid);
-                                }
-
-                                // B. Записываем родителя и выход в ребенка (Target <- Source)
-                                // ВАЖНО: Массивы pnSIDs и poSIDs должны быть синхронны по индексам!
-                                targetNode.pnSIDs.push(sourceNode.sid);
-                                targetNode.poSIDs.push(output.sid);
-                            } else {
-                                // Если целевая нода не найдена (была удалена?), разрываем связь
-                                output.cnSID = null;
-                            }
-                        }
-                    });
-                });
-            }
-
-            saveFlowchart() {
-                // ПЕРЕД СОХРАНЕНИЕМ ЧИНИМ СТРУКТУРУ
-                this.rebuildConnectivity();
-
-                // Update the loaded files
-                app.jsonData = this.flowchartData;
-                app.uistateData = this.uiStateData;
-                
-                document.getElementById('status').textContent = 'Changes saved';
-                this.exitEditMode(true);
-            }
-
-             saveFlowchartAs() {
-                // ПЕРЕД СОХРАНЕНИЕМ ЧИНИМ СТРУКТУРУ
-                this.rebuildConnectivity();
-
-                const jsonStr = JSON.stringify(this.flowchartData, null, '\t');
-                const uistateStr = JSON.stringify(this.uiStateData, null, '\t');
-
-                // Download JSON file
-                const jsonBlob = new Blob([jsonStr], { type: 'application/json' });
-                const jsonUrl = URL.createObjectURL(jsonBlob);
-                const jsonLink = document.createElement('a');
-                jsonLink.href = jsonUrl;
-                jsonLink.download = this.flowchartData.name + '.json';
-                jsonLink.click();
-
-                // Download uistate file
-                const uistateBlob = new Blob([uistateStr], { type: 'application/json' });
-                const uistateUrl = URL.createObjectURL(uistateBlob);
-                const uistateLink = document.createElement('a');
-                uistateLink.href = uistateUrl;
-                uistateLink.download = this.flowchartData.name + '.uistate.json';
-                uistateLink.click();
-
-                document.getElementById('status').textContent = 'Files downloaded';
-                this.exitEditMode(true);
-            }
-
-            loadFlowchart(flowchartData, uiStateData) {
-                this.flowchartData = flowchartData;
-                this.uiStateData = uiStateData;
-                
-                if (uiStateData && uiStateData.flowchart) {
-                    this.zoom = uiStateData.flowchart.z || 1;
-                    document.getElementById('zoomLevel').textContent = Math.round(this.zoom * 100) + '%';
-                }
-
-                this.centerView();
-                this.render();
-            }
-
-            centerView() {
-                if (!this.flowchartData || !this.flowchartData.nodes || this.flowchartData.nodes.length === 0) {
-                    this.panX = this.canvas.width / 2;
-                    this.panY = this.canvas.height / 2;
-                    return;
-                }
-
-                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-                
-                this.flowchartData.nodes.forEach(node => {
-                    minX = Math.min(minX, node.x);
-                    minY = Math.min(minY, node.y);
-                    maxX = Math.max(maxX, node.x + node.w);
-                    maxY = Math.max(maxY, node.y + node.h);
-                });
-
-                const centerX = (minX + maxX) / 2;
-                const centerY = (minY + maxY) / 2;
-
-                this.panX = this.canvas.width / 2 - centerX * this.zoom;
-                this.panY = this.canvas.height / 2 - centerY * this.zoom;
-            }
-
-            resetView() {
-                this.zoom = 1;
-                document.getElementById('zoomLevel').textContent = '100%';
-                this.centerView();
-                this.render();
-            }
+            // --- RENDERING ---
 
             render() {
-                if (!this.flowchartData) return;
+                if (!this.data.flowchart) return;
+                const ctx = this.ctx;
+                ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-                this.ctx.save();
-
-                this.drawConnections();
-                this.drawNodes();
-
-                this.ctx.restore();
-            }
-
-            drawConnections() {
-                if (!this.flowchartData.nodes) return;
-
-                this.flowchartData.nodes.forEach(node => {
-                    if (!node.outputs) return;
-
-                    node.outputs.forEach((output, outputIndex) => {
-                        if (output.cnSID && output.enable) {
-                            const targetNode = this.flowchartData.nodes.find(n => n.sid === output.cnSID);
-                            if (targetNode) {
-                                this.drawConnection(node, targetNode, outputIndex, output);
-                            }
+                // 1. СЕТКА И ОСИ
+                this.drawGrid();
+                
+                // 2. СВЯЗИ
+                this.data.flowchart.nodes.forEach((node, nIdx) => {
+                    node.outputs?.forEach((out, oIdx) => {
+                        if (out.cnSID && out.enable) {
+                            const target = this.data.flowchart.nodes.find(n => n.sid === out.cnSID);
+                            if (target) this.drawConnection(node, nIdx, out, oIdx, target);
                         }
                     });
                 });
-            }
 
-             drawConnection(fromNode, toNode, outputIndex, output) {
-                // Координаты старта (справа от выхода)
-                const startPos = this.getOutputPosition(fromNode, outputIndex);
-                // Координаты конца (центр левой грани целевой ноды)
-                const endPos = this.worldToScreen(toNode.x, toNode.y + (toNode.h / 2));
-
-                // Определение цвета
-                let color = '#666';
-                let width = 2;
-
-                // Если эта связь под курсором
-                const isHovered = this.hoveredConnection && 
-                                this.hoveredConnection.output === output;
-
-                if (isHovered) {
-                    color = '#ff9800'; // Оранжевый при наведении
-                    width = 4;
-                } else if (output.default) {
-                    color = '#4caf50'; // Зеленый для дефолтных
-                    width = 3;
-                } else {
-                    // Цвет из uistate
-                    const nodeIndex = this.flowchartData.nodes.indexOf(fromNode);
-                    if (this.uiStateData?.nodes?.[nodeIndex]?.outputs?.[outputIndex]?.color) {
-                        const c = this.uiStateData.nodes[nodeIndex].outputs[outputIndex].color;
-                        color = `rgba(${c[0]*255}, ${c[1]*255}, ${c[2]*255}, ${c[3]})`;
+                // 2.1 Активная связь (drag)
+                if (this.state.connectionStart) {
+                    const start = this.getOutputPos(this.state.connectionStart.node, 
+                        this.state.connectionStart.node.outputs.indexOf(this.state.connectionStart.output));
+                    let end = this.state.lastMouse;
+                    // Корректируем end, чтобы линия рисовалась относительно канваса (lastMouse в screen coords)
+                    // Но нам нужно конвертировать это правильно, если lastMouse берется из clientX
+                    // В handleInput мы обновляем lastMouse. Для отрисовки линии просто берем координаты мыши относительна канваса:
+                    const rect = this.canvas.getBoundingClientRect();
+                    end = { 
+                        x: this.state.lastMouse.x - rect.left, 
+                        y: this.state.lastMouse.y - rect.top 
+                    };
+                    
+                    if (this.state.hover.node) {
+                        end = Utils.worldToScreen(this.state.hover.node.x, this.state.hover.node.y + this.state.hover.node.h/2, this.view.panX, this.view.panY, this.view.zoom);
                     }
+
+                    ctx.beginPath();
+                    ctx.strokeStyle = '#fff';
+                    ctx.setLineDash([5, 5]);
+                    ctx.moveTo(start.x, start.y);
+                    ctx.lineTo(end.x, end.y);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
                 }
 
+                // 3. НОДЫ
+                this.data.flowchart.nodes.forEach((node, i) => this.drawNode(node, i));
+            }
+
+            drawGrid() {
+                const ctx = this.ctx;
+                const zoom = this.view.zoom;
+                const panX = this.view.panX;
+                const panY = this.view.panY;
+                const cellSize = CONFIG.dims.gridSize * zoom;
+                
+                const w = this.canvas.width;
+                const h = this.canvas.height;
+
+                ctx.save();
+                ctx.beginPath();
+                ctx.strokeStyle = CONFIG.colors.grid;
+                ctx.lineWidth = 1;
+
+                // Вычисляем смещение сетки, чтобы она двигалась вместе с панорамой
+                // startX/Y - это позиция первой линии на экране
+                const startX = panX % cellSize;
+                const startY = panY % cellSize;
+
+                // Вертикальные линии
+                for (let x = startX; x < w; x += cellSize) {
+                    ctx.moveTo(x, 0);
+                    ctx.lineTo(x, h);
+                }
+
+                // Горизонтальные линии
+                for (let y = startY; y < h; y += cellSize) {
+                    ctx.moveTo(0, y);
+                    ctx.lineTo(w, y);
+                }
+                ctx.stroke();
+
+                // ОСИ НАЧАЛА КООРДИНАТ (0,0)
+                // Рисуем их только если они находятся в видимой области
+                // Они должны быть поверх обычной сетки и пунктирными
+                ctx.beginPath();
+                ctx.strokeStyle = '#666';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([10, 10]);
+
+                if (panX >= -50 && panX <= w + 50) {
+                    ctx.moveTo(panX, 0);
+                    ctx.lineTo(panX, h);
+                }
+                if (panY >= -50 && panY <= h + 50) {
+                    ctx.moveTo(0, panY);
+                    ctx.lineTo(w, panY);
+                }
+                ctx.stroke();
+
+                // Текст (0,0)
+                if (panX > -100 && panX < w && panY > -100 && panY < h) {
+                    ctx.fillStyle = '#888';
+                    ctx.font = '12px monospace';
+                    ctx.setLineDash([]);
+                    ctx.fillText("(0, 0)", panX + 5, panY + 15);
+                }
+
+                ctx.restore();
+            }
+
+            drawConnection(n1, n1Idx, output, oIdx, n2) {
+                const start = this.getOutputPos(n1, oIdx);
+                const end = Utils.worldToScreen(n2.x, n2.y + n2.h/2, this.view.panX, this.view.panY, this.view.zoom);
+                
+                let color = CONFIG.colors.connection;
+                let width = 2;
+                
+                if (this.state.hover.connection && this.state.hover.connection.output === output) {
+                    color = CONFIG.colors.connectionHover; width = 4;
+                } else if (output.default) {
+                    color = CONFIG.colors.connectionDefault; width = 3;
+                }
+
+                const cpOffset = Math.abs(end.x - start.x) * 0.5;
                 this.ctx.beginPath();
                 this.ctx.strokeStyle = color;
                 this.ctx.lineWidth = width;
-
-                const cpDist = Math.abs(endPos.x - startPos.x) * 0.5;
-                
-                // Кривая безье
-                this.ctx.moveTo(startPos.x, startPos.y);
-                this.ctx.bezierCurveTo(
-                    startPos.x + cpDist, startPos.y,
-                    endPos.x - cpDist, endPos.y,
-                    endPos.x, endPos.y
-                );
+                this.ctx.moveTo(start.x, start.y);
+                this.ctx.bezierCurveTo(start.x + cpOffset, start.y, end.x - cpOffset, end.y, end.x, end.y);
                 this.ctx.stroke();
 
-                // Стрелка на конце
-                const angle = Math.atan2(endPos.y - startPos.y, endPos.x - startPos.x); // Упрощенный угол
-                // Более точный угол для конца кривой - вектор от P2 к P3
-                // Но для простоты оставим прямую, так как P2 на одной высоте с P3 часто
-
-                const arrowSize = isHovered ? 10 : 8;
+                // Arrow
                 this.ctx.beginPath();
-                this.ctx.moveTo(endPos.x, endPos.y);
-                this.ctx.lineTo(
-                    endPos.x - arrowSize * Math.cos(angle - Math.PI / 6),
-                    endPos.y - arrowSize * Math.sin(angle - Math.PI / 6)
-                );
-                this.ctx.lineTo(
-                    endPos.x - arrowSize * Math.cos(angle + Math.PI / 6),
-                    endPos.y - arrowSize * Math.sin(angle + Math.PI / 6)
-                );
-                this.ctx.closePath();
+                this.ctx.arc(end.x, end.y, 4, 0, Math.PI*2);
                 this.ctx.fillStyle = color;
                 this.ctx.fill();
             }
 
-            drawNodes() {
-                if (!this.flowchartData.nodes) return;
+            drawNode(node, idx) {
+                const pos = Utils.worldToScreen(node.x, node.y, this.view.panX, this.view.panY, this.view.zoom);
+                const w = node.w * this.view.zoom;
+                const h = node.h * this.view.zoom;
+                const rad = CONFIG.dims.borderRadius * this.view.zoom;
+                const hh = CONFIG.dims.headerH * this.view.zoom;
 
-                this.flowchartData.nodes.forEach((node, index) => {
-                    this.drawNode(node, index);
-                });
-            }
-
-            // --- ИСПРАВЛЕННЫЙ МЕТОД: Разделение цветов заголовка и обводки ---
-            drawNode(node, index) {
-                const pos = this.worldToScreen(node.x, node.y);
-                const width = node.w * this.zoom;
-                const height = node.h * this.zoom;
-                const radius = 6 * this.zoom;
-                const headerHeight = 30 * this.zoom;
-
-                this.ctx.save();
-
-                // 1. ОПРЕДЕЛЕНИЕ ЦВЕТОВ
-                
-                // Цвет заголовка: Фиксированный Construct Blue (#246aa2)
-                // Если это стартовая нода - оставляем зеленый, как в Construct
-                let headerColor = '#246aa2'; 
-                if (node.s) headerColor = '#4caf50'; 
-
-                // Цвет обводки: Берем из настроек (UI State) или черный по умолчанию
-                let borderColor = '#000000';
-                if (this.uiStateData?.nodes?.[index]?.node?.color) {
-                    const c = this.uiStateData.nodes[index].node.color;
+                // Base Color logic
+                let borderColor = CONFIG.colors.borderDefault;
+                if (this.data.ui.nodes[idx]?.node?.color) {
+                    const c = this.data.ui.nodes[idx].node.color;
                     borderColor = `rgb(${c[0]*255}, ${c[1]*255}, ${c[2]*255})`;
                 }
+                
+                this.ctx.save();
 
-                // 2. Тело ноды (Фон)
+                // Body
                 this.ctx.beginPath();
-                this.ctx.roundRect(pos.x, pos.y, width, height, radius);
-                this.ctx.fillStyle = '#2b2b2b';
+                this.ctx.roundRect(pos.x, pos.y, w, h, rad);
+                this.ctx.fillStyle = CONFIG.colors.bgNode;
                 this.ctx.fill();
 
-                // 3. Заголовок (Header Background)
+                // Header
                 this.ctx.save();
-                this.ctx.beginPath();
-                this.ctx.roundRect(pos.x, pos.y, width, height, radius);
-                this.ctx.clip(); // Обрезаем по скруглению
-                
-                this.ctx.fillStyle = headerColor; // Всегда синий (или зеленый для старта)
-                this.ctx.fillRect(pos.x, pos.y, width, headerHeight);
+                this.ctx.clip();
+                this.ctx.fillStyle = node.s ? CONFIG.colors.headerStart : CONFIG.colors.header;
+                this.ctx.fillRect(pos.x, pos.y, w, hh);
                 this.ctx.restore();
 
-                // 4. ОБВОДКА (Border / Selection / Hover)
-                this.ctx.beginPath();
-                this.ctx.roundRect(pos.x, pos.y, width, height, radius);
-
-                if (this.connectionStart && this.hoveredNode === node && this.connectionStart.node !== node) {
-                    // Если тянем связь к этой ноде - подсветка цели
-                    this.ctx.lineWidth = 3;
-                    this.ctx.strokeStyle = '#ff9800'; 
-                } else if (node === this.selectedNode) {
-                    // Если нода выбрана - синяя жирная обводка
-                    this.ctx.lineWidth = 3;
-                    this.ctx.strokeStyle = '#0078d4';
-                } else {
-                    // ОБЫЧНОЕ СОСТОЯНИЕ: Используем пользовательский Border Color
-                    // Если цвет черный - линия тонкая (1), если пользовательский - чуть толще (2)
-                    this.ctx.lineWidth = (borderColor !== '#000000' && borderColor !== 'rgb(0, 0, 0)') ? 3 : 1;
-                    this.ctx.strokeStyle = borderColor;
-                }
+                // Outline
+                this.ctx.lineWidth = (node === this.state.selection.node) ? 3 : 1;
+                this.ctx.strokeStyle = (node === this.state.selection.node) ? CONFIG.colors.selection : borderColor;
+                if (this.state.hover.node === node && this.state.connectionStart) this.ctx.strokeStyle = CONFIG.colors.connectionHover;
                 this.ctx.stroke();
 
-                // 5. Текст заголовка
-                this.ctx.fillStyle = '#ffffff';
-                this.ctx.font = `bold ${Math.max(10, 13 * this.zoom)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
+                // --- TEXT RENDER (Explicitly Left Aligned) ---
+                this.ctx.textAlign = 'left'; 
+                this.ctx.fillStyle = CONFIG.colors.text;
+                this.ctx.font = `bold ${Math.max(10, 13 * this.view.zoom)}px sans-serif`;
                 this.ctx.textBaseline = 'middle';
-                const title = node.c || 'Node';
-                this.ctx.fillText(title, pos.x + 10 * this.zoom, pos.y + (headerHeight / 2), width - 20 * this.zoom);
+                this.ctx.fillText(node.c || 'Node', pos.x + 10*this.view.zoom, pos.y + hh/2, w - 20);
 
-                // 6. Тэги
                 if (node.t) {
-                    this.ctx.fillStyle = '#888';
-                    this.ctx.font = `italic ${Math.max(9, 11 * this.zoom)}px Arial`;
-                    this.ctx.fillText(node.t, pos.x + 10 * this.zoom, pos.y + headerHeight + 12 * this.zoom);
+                    this.ctx.fillStyle = CONFIG.colors.textDim;
+                    this.ctx.font = `italic ${Math.max(9, 11 * this.view.zoom)}px sans-serif`;
+                    this.ctx.fillText(node.t, pos.x + 10*this.view.zoom, pos.y + hh + 12*this.view.zoom);
                 }
 
-                // 7. Input Port (Вход слева)
-                const inputY = pos.y + (height / 2);
+                // Input Dot (Left side)
                 this.ctx.beginPath();
-                this.ctx.arc(pos.x, inputY, 5 * this.zoom, -Math.PI / 2, Math.PI / 2, false);
+                this.ctx.arc(pos.x, pos.y + h/2, 5*this.view.zoom, -Math.PI/2, Math.PI/2);
                 this.ctx.fillStyle = '#555';
                 this.ctx.fill();
 
-                // 8. Outputs (Выходы)
-                if (node.outputs?.length > 0) {
-                    const startY = headerHeight + (node.t ? 20 * this.zoom : 5 * this.zoom);
-                    node.outputs.forEach((output, i) => {
-                        this.drawOutput(node, output, i, pos, startY);
-                    });
+                // Outputs
+                if (node.outputs) {
+                    const startY = hh + (node.t ? 20 * this.view.zoom : 5 * this.view.zoom);
+                    node.outputs.forEach((out, i) => this.drawOutput(node, out, i, pos, startY));
                 }
 
-                // Затемнение если нода выключена
+                // Disabled overlay
                 if (!node.e) {
                     this.ctx.fillStyle = 'rgba(0,0,0,0.5)';
-                    this.ctx.beginPath();
-                    this.ctx.roundRect(pos.x, pos.y, width, height, radius);
                     this.ctx.fill();
                 }
 
                 this.ctx.restore();
             }
 
-            // --- НОВЫЙ МЕТОД: Отрисовка выхода (Output) ---
-            drawOutput(node, output, index, nodePos, startY) {
-                const rowHeight = 24 * this.zoom;
-                const yOffset = startY + (index * rowHeight);
-                const textY = nodePos.y + yOffset + (rowHeight / 2);
-                
-                // Текст выхода
-                this.ctx.fillStyle = output.default ? '#8eff92' : '#cccccc'; // Светло-зеленый для дефолта
-                this.ctx.font = `${Math.max(9, 12 * this.zoom)}px Arial`;
-                const nameText = output.name + (output.value ? `: ${output.value}` : '');
-                this.ctx.fillText(nameText, nodePos.x + 10 * this.zoom, textY);
+            drawOutput(node, out, idx, pos, startY) {
+                const rh = CONFIG.dims.rowH * this.view.zoom;
+                const yOff = startY + (idx * rh);
+                const textY = pos.y + yOff + rh/2;
 
-                if (output.default) {
-                    this.ctx.font = `bold ${Math.max(8, 10 * this.zoom)}px Arial`;
-                    const metrics = this.ctx.measureText(nameText);
-                    this.ctx.fillStyle = '#4caf50';
-                    this.ctx.fillText('(Default)', nodePos.x + 15 * this.zoom + metrics.width, textY);
-                }
-
-                // Точка подключения (Connector Dot) справа
-                const dotX = nodePos.x + (node.w * this.zoom);
-                const dotY = nodePos.y + yOffset + (rowHeight / 2);
+                // --- TEXT RENDER (Right Aligned) ---
+                this.ctx.textAlign = 'right';
                 
-                // Рисуем кружок коннектора
+                this.ctx.fillStyle = out.default ? '#8eff92' : '#ccc';
+                this.ctx.font = `${Math.max(9, 12 * this.view.zoom)}px sans-serif`;
+                
+                let txt = out.name + (out.value ? `: ${out.value}` : '');
+                if (out.default) txt += ' (Default)';
+                
+                // Координата X: Правый край ноды минус отступ (15px * zoom) для точки
+                const rightEdgeX = pos.x + (node.w * this.view.zoom) - (15 * this.view.zoom);
+                
+                this.ctx.fillText(txt, rightEdgeX, textY);
+
+                // Connector Dot
+                const cx = pos.x + node.w * this.view.zoom;
+                const cy = pos.y + yOff + rh/2;
+                
                 this.ctx.beginPath();
-                this.ctx.arc(dotX, dotY, 5 * this.zoom, 0, Math.PI * 2);
+                this.ctx.arc(cx, cy, CONFIG.dims.dotRadius * this.view.zoom, 0, Math.PI*2);
+                this.ctx.fillStyle = (this.state.hover.output?.output === out) ? '#fff' : (out.cnSID ? CONFIG.colors.selection : '#444');
+                this.ctx.fill();
+                this.ctx.stroke();
                 
-                // Цвет коннектора зависит от того, подключен он или наведен
-                if (this.hoveredOutput && this.hoveredOutput.output === output) {
-                    this.ctx.fillStyle = '#ffffff'; // Подсветка при наведении
-                } else if (output.cnSID) {
-                    this.ctx.fillStyle = '#0078d4'; // Подключен
+                // Reset alignment back to default (just in case)
+                this.ctx.textAlign = 'left'; 
+            }
+
+            // --- UI GENERATION ---
+
+            generateProperties(node) {
+                const p = document.getElementById('properties-panel');
+                const val = (v) => (v || '').replace(/"/g, '&quot;');
+                
+                let html = `
+                    <div class="prop-group">
+                        <h3>Node Properties</h3>
+                        <div class="prop-row"><label>Caption</label><input type="text" class="node-input" data-key="c" value="${val(node.c)}"></div>
+                        <div class="prop-row"><label>Tags</label><input type="text" class="node-input" data-key="t" value="${val(node.t)}"></div>
+                        <div class="prop-row"><label><input type="checkbox" class="node-check" data-key="e" ${node.e?'checked':''}> Enabled</label></div>
+                        <div class="prop-row"><label><input type="checkbox" class="node-check" data-key="s" ${node.s?'checked':''}> Start Node</label></div>
+                    </div>
+                    <div class="prop-group">
+                        <h3>Outputs <button class="btn small" style="float:right" id="prop-add-out">Add</button></h3>
+                        <div id="out-list">
+                `;
+
+                node.outputs.forEach((o, i) => {
+                    html += `
+                        <div class="output-item ${o.default?'default':''}">
+                            <div class="output-header"><strong>#${i+1}</strong> <button class="btn small danger" data-del-out="${i}">X</button></div>
+                            <div class="prop-row"><label>Name</label><input type="text" class="out-input" data-idx="${i}" data-key="name" value="${val(o.name)}"></div>
+                            <div class="prop-row"><label>Value</label><textarea class="out-input" data-idx="${i}" data-key="value">${(o.value||'').replace(/\\n/g, '\n')}</textarea></div>
+                            <div class="prop-row"><label><input type="checkbox" class="out-check" data-idx="${i}" data-key="enable" ${o.enable?'checked':''}> Enabled</label></div>
+                            <div class="prop-row"><label><input type="checkbox" class="out-check" data-idx="${i}" data-key="default" ${o.default?'checked':''}> Default</label></div>
+                        </div>
+                    `;
+                });
+                html += '</div></div>';
+                p.innerHTML = html;
+
+                // Event Listeners
+                p.querySelectorAll('.node-input').forEach(el => el.oninput = e => { node[e.target.dataset.key] = e.target.value; this.render(); });
+                p.querySelectorAll('.node-check').forEach(el => el.onchange = e => { 
+                    if(e.target.dataset.key === 's' && e.target.checked) this.data.flowchart.nodes.forEach(n=>n.s=false);
+                    node[e.target.dataset.key] = e.target.checked; 
+                    this.render(); 
+                });
+                
+                p.querySelectorAll('.out-input').forEach(el => el.oninput = e => {
+                    let v = e.target.value;
+                    if(e.target.tagName === 'TEXTAREA') v = v.replace(/\n/g, '\\n');
+                    node.outputs[e.target.dataset.idx][e.target.dataset.key] = v;
+                    this.render();
+                });
+                p.querySelectorAll('.out-check').forEach(el => el.onchange = e => {
+                    const idx = e.target.dataset.idx;
+                    const key = e.target.dataset.key;
+                    if (key === 'default' && e.target.checked) node.outputs.forEach(o => o.default = false);
+                    node.outputs[idx][key] = e.target.checked;
+                    this.generateProperties(node);
+                    this.render();
+                });
+                
+                // --- FIXED: SYNC LOGIC FOR ADD/DELETE OUTPUT ---
+                const nodeIdx = this.data.flowchart.nodes.indexOf(node);
+
+                document.getElementById('prop-add-out').onclick = () => {
+                    // 1. Logic add
+                    node.outputs.push({ sid: Utils.uuid(), name: "Option", value:"", enable:true, default:false });
+                    node.h += 30; 
+                    // 2. UI State Sync
+                    if (this.data.ui.nodes[nodeIdx]) {
+                        this.data.ui.nodes[nodeIdx].outputs.push({ 
+                            color: [0,0,0,1], 
+                            linkMode: "line", 
+                            propertiesBar: {} 
+                        });
+                    }
+                    this.generateProperties(node); this.render();
+                };
+
+                p.querySelectorAll('[data-del-out]').forEach(b => b.onclick = e => {
+                    const outIdx = parseInt(e.target.dataset.delOut);
+                    // 1. Logic remove
+                    node.outputs.splice(outIdx, 1);
+                    node.h -= 30;
+                    // 2. UI State Sync
+                    if (this.data.ui.nodes[nodeIdx] && this.data.ui.nodes[nodeIdx].outputs) {
+                        this.data.ui.nodes[nodeIdx].outputs.splice(outIdx, 1);
+                    }
+                    this.generateProperties(node); this.render();
+                });
+            }
+
+            showContextMenu(e) {
+                const menu = document.getElementById('context-menu');
+                const items = [];
+                const rect = this.canvas.getBoundingClientRect();
+                
+                if (this.state.hover.connection) {
+                    items.push({ txt: 'Delete Connection', fn: () => { this.state.hover.connection.output.cnSID = null; this.render(); }});
+                } else if (this.state.hover.node) {
+                    const n = this.state.hover.node;
+                    items.push({ txt: 'Delete Node', fn: () => this.deleteNode(n) });
+                    items.push({ txt: n.e ? 'Disable' : 'Enable', fn: () => { n.e = !n.e; this.render(); }});
+                    items.push({ txt: 'Set Start', fn: () => { this.data.flowchart.nodes.forEach(x=>x.s=false); n.s=true; this.render(); }});
                 } else {
-                    this.ctx.fillStyle = '#444'; // Пустой
+                    items.push({ txt: 'Add Node', fn: () => this.addNode(e.clientX, e.clientY) });
+                }
+
+                menu.innerHTML = items.map((i, idx) => `<div class="ctx-item" data-i="${idx}">${i.txt}</div>`).join('');
+                menu.style.left = e.clientX + 'px';
+                menu.style.top = e.clientY + 'px';
+                menu.classList.add('active');
+                
+                menu.onclick = (evt) => {
+                    const idx = evt.target.dataset.i;
+                    if(idx !== undefined) { items[idx].fn(); menu.classList.remove('active'); }
+                };
+            }
+
+            // --- FILE OPERATIONS ---
+
+            setMode(mode) {
+                this.state.mode = mode;
+                const ind = document.getElementById('mode-indicator');
+                const tb = document.getElementById('toolbar');
+                const c = this.canvas;
+                
+                if (mode === 'edit') {
+                    this.data.original = JSON.parse(JSON.stringify(this.data.flowchart)); // Backup
+                    ind.textContent = "EDIT MODE"; ind.className = "edit-mode";
+                    tb.classList.add('active');
+                    c.classList.add('editing');
+                    document.getElementById('properties-panel').classList.add('active');
+                    document.getElementById('menu-edit-wrapper').style.opacity = "1"; 
+                    document.getElementById('btn-toggle-mode').textContent = "Save & Exit";
+                    document.getElementById('btn-cancel-edit').style.display = "block";
+                    document.getElementById('btn-save').classList.remove('disabled');
+                    document.getElementById('edit-hint').style.display = 'block';
+                } else {
+                    ind.textContent = "VIEW MODE"; ind.className = "view-mode";
+                    tb.classList.remove('active');
+                    c.classList.remove('editing');
+                    document.getElementById('properties-panel').classList.remove('active');
+                    document.getElementById('btn-toggle-mode').textContent = "Enter Edit Mode";
+                    document.getElementById('btn-cancel-edit').style.display = "none";
+                    document.getElementById('btn-save').classList.add('disabled');
+                    document.getElementById('edit-hint').style.display = 'none';
+                    this.select(null);
+                }
+            }
+
+            rebuildConnectivity() {
+                // Ensure Arrays exist and are clean
+                this.data.flowchart.nodes.forEach(n => {
+                    n.pnSIDs = []; n.poSIDs = []; n.nodeSIDs = [];
+                    n.x = Math.round(n.x); n.y = Math.round(n.y);
+                });
+
+                this.data.flowchart.nodes.forEach(src => {
+                    src.outputs?.forEach(out => {
+                        if (out.cnSID) {
+                            const target = this.data.flowchart.nodes.find(n => n.sid === out.cnSID);
+                            if (target) {
+                                // Logic: Parent adds child ID
+                                if(!src.nodeSIDs.includes(target.sid)) src.nodeSIDs.push(target.sid);
+                                
+                                // Logic: Child adds Parent ID AND Output ID (parallel arrays)
+                                target.pnSIDs.push(src.sid);
+                                target.poSIDs.push(out.sid);
+                            } else {
+                                out.cnSID = null; // Clean dead link
+                            }
+                        }
+                    });
+                });
+            }
+
+            load(json, ui) {
+                this.data.flowchart = json;
+                this.data.ui = ui;
+                this.view.zoom = ui.flowchart?.z || 1;
+                document.getElementById('zoom-level').textContent = Math.round(this.view.zoom * 100) + '%';
+                
+                // Center View
+                let minX=Infinity, minY=Infinity, maxX=-Infinity, maxY=-Infinity;
+                json.nodes.forEach(n => { minX=Math.min(minX, n.x); minY=Math.min(minY, n.y); maxX=Math.max(maxX, n.x+n.w); maxY=Math.max(maxY, n.y+n.h); });
+                if (minX !== Infinity) {
+                    this.view.panX = this.canvas.width/2 - ((minX+maxX)/2)*this.view.zoom;
+                    this.view.panY = this.canvas.height/2 - ((minY+maxY)/2)*this.view.zoom;
                 }
                 
-                this.ctx.fill();
-                this.ctx.strokeStyle = '#222';
-                this.ctx.stroke();
+                document.getElementById('menu-edit-wrapper').style.opacity = "1";
+                document.getElementById('menu-edit-wrapper').style.pointerEvents = "auto";
+                this.render();
+            }
+
+            // --- MINIFLOW IO ---
+
+            /**
+             * Конвертирует текущий граф в формат MiniFlow и скачивает файл.
+             */
+            exportMiniFlow() {
+                // 1. Индексация и поиск корня
+                let rootSid = null;
+                
+                // Ищем стартовую ноду (s=true)
+                const startNode = this.data.flowchart.nodes.find(n => n.s);
+                if (startNode) {
+                    rootSid = startNode.sid;
+                } else if (this.data.flowchart.nodes.length > 0) {
+                    // Если стартовой нет, берем первую
+                    rootSid = this.data.flowchart.nodes[0].sid;
+                } else {
+                    alert("Граф пуст");
+                    return;
+                }
+
+                // 2. Генерация читаемых ID (Humanizing IDs)
+                const idMap = new Map(); // SID -> StringID
+                const usedIds = new Set();
+
+                const generateId = (node) => {
+                    // Приоритет: Tag -> Caption -> "node"
+                    let base = (node.t || node.c || "node").trim();
+                    // Санитизация: только англ буквы, цифры и _, lowercase
+                    base = base.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+                    if (!base) base = "node";
+
+                    let candidate = base;
+                    let counter = 2;
+                    while (usedIds.has(candidate)) {
+                        candidate = `${base}_${counter}`;
+                        counter++;
+                    }
+                    usedIds.add(candidate);
+                    return candidate;
+                };
+
+                this.data.flowchart.nodes.forEach(node => {
+                    idMap.set(node.sid, generateId(node));
+                });
+
+                // 3. Сборка структуры MiniFlow
+                const miniFlow = {
+                    root: idMap.get(rootSid),
+                    nodes: {}
+                };
+
+                this.data.flowchart.nodes.forEach(node => {
+                    const strId = idMap.get(node.sid);
+                    
+                    // Формируем выходы
+                    const outputs = (node.outputs || []).map(out => {
+                        let nextId = null;
+                        if (out.cnSID && idMap.has(out.cnSID)) {
+                            nextId = idMap.get(out.cnSID);
+                        }
+                        return {
+                            name: out.name || "Next", // Обязательное поле
+                            value: out.value || "",
+                            next: nextId
+                        };
+                    });
+
+                    // Валидация: если выходов нет, добавляем технический заглушку (по ТЗ)
+                    if (outputs.length === 0) {
+                        outputs.push({ name: "End", value: "", next: null });
+                    }
+
+                    miniFlow.nodes[strId] = {
+                        caption: node.c || "",
+                        tag: node.t || "",
+                        outputs: outputs
+                    };
+                });
+
+                // Скачивание
+                const blob = new Blob([JSON.stringify(miniFlow, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = (this.data.flowchart.name || 'miniflow') + '.miniflow.json';
+                a.click();
+            }
+
+            /**
+             * Импортирует JSON в формате MiniFlow, конвертирует в C3 и загружает.
+             */
+            importMiniFlow(miniJson) {
+                if (!miniJson.root || !miniJson.nodes) {
+                    alert("Invalid MiniFlow format");
+                    return;
+                }
+
+                // Шаг 1: Инициализация и Маппинг ID
+                const c3Data = {
+                    sid: Utils.uuid(),
+                    nodes: [],
+                    "preset-nodes": { items: [], subfolders: [] },
+                    name: "Imported_MiniFlow",
+                    w: 30000, h: 30000
+                };
+                
+                // Для UI State создадим дефолтную структуру
+                const uiData = { flowchart: { z: 1, sx: 0, sy: 0 }, nodes: [] };
+
+                const sidMap = new Map(); // StringID -> C3 SID
+                const nodesByStringId = miniJson.nodes;
+                
+                // Создаем SID для всех нод заранее
+                Object.keys(nodesByStringId).forEach(strId => {
+                    sidMap.set(strId, Utils.uuid());
+                });
+
+                if (!sidMap.has(miniJson.root)) {
+                    alert("Root node not found in nodes list");
+                    return;
+                }
+
+                // Шаг 2: Генерация нод (Первый проход - создание объектов)
+                Object.entries(nodesByStringId).forEach(([strId, miniNode]) => {
+                    const c3Sid = sidMap.get(strId);
+                    
+                    const c3Node = {
+                        sid: c3Sid,
+                        pnSIDs: [], poSIDs: [], nodeSIDs: [], // Инициализация массивов
+                        x: 0, y: 0, w: 400, h: 250, // Дефолтные размеры
+                        t: miniNode.tag || "",
+                        c: miniNode.caption || strId,
+                        s: (strId === miniJson.root), // Root -> Start node
+                        e: true,
+                        ty: "dictionary", pi: 0, pr: false, prfsid: null, prfnsid: null,
+                        outputs: []
+                    };
+
+                    // Создаем выходы (пока без связей)
+                    if (Array.isArray(miniNode.outputs)) {
+                        c3Node.outputs = miniNode.outputs.map(miniOut => ({
+                            sid: Utils.uuid(), // Генерируем ID выхода
+                            cnSID: null,       // Заполним на Шаге 3
+                            name: miniOut.name || "Next",
+                            value: miniOut.value || "",
+                            enable: true,
+                            default: false,
+                            // Временное хранение цели для шага 3
+                            _tempNext: miniOut.next 
+                        }));
+                        // Высота ноды зависит от кол-ва выходов
+                        c3Node.h = 100 + (c3Node.outputs.length * 30);
+                    }
+
+                    c3Data.nodes.push(c3Node);
+                    
+                    // Добавляем UI state для ноды
+                    uiData.nodes.push({
+                        node: { color: [0.8, 0.8, 0.8, 1], propertiesBar: {}, nodeTable: {} },
+                        outputs: c3Node.outputs.map(() => ({ color: [0,0,0,1], linkMode: "line", propertiesBar: {} }))
+                    });
+                });
+
+                // Шаг 3: Линковка (Второй проход - Topology Resolution)
+                c3Data.nodes.forEach(sourceNode => {
+                    sourceNode.outputs.forEach(output => {
+                        const targetStrId = output._tempNext;
+                        delete output._tempNext; // Удаляем временное поле
+
+                        if (targetStrId && sidMap.has(targetStrId)) {
+                            const targetSid = sidMap.get(targetStrId);
+                            const targetNode = c3Data.nodes.find(n => n.sid === targetSid);
+
+                            if (targetNode) {
+                                // Прямая связь
+                                output.cnSID = targetSid;
+                                
+                                // Обратные ссылки (Critical for C3)
+                                if (!sourceNode.nodeSIDs.includes(targetSid)) {
+                                    sourceNode.nodeSIDs.push(targetSid);
+                                }
+                                targetNode.pnSIDs.push(sourceNode.sid);
+                                targetNode.poSIDs.push(output.sid);
+                            }
+                        }
+                    });
+                });
+
+                // Шаг 4: Авто-лейаут
+                this._miniFlowAutoLayout(c3Data.nodes, sidMap.get(miniJson.root));
+
+                // Загрузка в редактор
+                this.load(c3Data, uiData);
+                document.getElementById('filename-display').textContent = "Imported MiniFlow";
+                document.getElementById('status-bar').textContent = `Imported ${c3Data.nodes.length} nodes from MiniFlow`;
+            }
+
+            /**
+             * Простой алгоритм BFS для расстановки нод слоями.
+             */
+            _miniFlowAutoLayout(nodes, rootSid) {
+                // КОНСТАНТЫ ОТСТУПОВ (Сдвигаем вправо и вниз от 0,0)
+                const START_X = 300; 
+                const START_Y = 300;
+                
+                const X_STEP = 500;
+                const Y_STEP = 300;
+                
+                const visited = new Set();
+                const queue = [{ sid: rootSid, layer: 0 }];
+                
+                // Отслеживаем следующий свободный Y для каждого слоя (X)
+                const layerNextY = {}; 
+
+                // Предварительно сбрасываем координаты
+                nodes.forEach(n => { n.x = 0; n.y = 0; });
+
+                while (queue.length > 0) {
+                    const { sid, layer } = queue.shift();
+                    
+                    if (visited.has(sid)) continue;
+                    visited.add(sid);
+
+                    const node = nodes.find(n => n.sid === sid);
+                    if (!node) continue;
+
+                    // Расчет координат
+                    if (layerNextY[layer] === undefined) layerNextY[layer] = 0;
+                    
+                    // X: Отступ + Слой * Шаг
+                    node.x = START_X + (layer * X_STEP);
+                    
+                    // Y: Отступ + Накопленная высота в слое
+                    node.y = START_Y + layerNextY[layer];
+                    
+                    // Сдвигаем Y для следующей ноды в этом слое
+                    layerNextY[layer] += Math.max(node.h, 200) + 50; // Высота ноды + отступ
+
+                    // Добавляем детей в очередь
+                    if (node.outputs) {
+                        node.outputs.forEach(out => {
+                            if (out.cnSID && !visited.has(out.cnSID)) {
+                                queue.push({ sid: out.cnSID, layer: layer + 1 });
+                            }
+                        });
+                    }
+                }
+
+                // Центрируем камеру редактора на начало графа (с учетом отступа)
+                this.view.panX = 50 - (START_X * this.view.zoom); 
+                this.view.panY = 50 - (START_Y * this.view.zoom);
+                
+                // Если зум 1, то просто сбросим в удобную позицию
+                if(this.view.zoom === 1) {
+                    this.view.panX = 50;
+                    this.view.panY = 50;
+                }
             }
         }
 
-        // Application
-        const app = {
-            editor: null,
-            jsonData: null,
-            uistateData: null,
-            jsonFile: null,
-            uistateFile: null
+        // --- APP INITIALIZATION ---
+
+        const app = new FlowchartEditor('canvas');
+        
+        // 1. Dropdown Menu Logic
+        document.querySelectorAll('.menu-item').forEach(m => {
+            m.addEventListener('click', e => {
+                const drop = m.querySelector('.dropdown');
+                if(drop) {
+                    const wasActive = drop.style.display === 'block';
+                    document.querySelectorAll('.dropdown').forEach(d => d.style.display = 'none');
+                    if(!wasActive) drop.style.display = 'block';
+                    e.stopPropagation();
+                }
+            });
+        });
+        document.addEventListener('click', () => document.querySelectorAll('.dropdown').forEach(d => d.style.display = 'none'));
+
+        // 2. C3 Import Logic (Native & UIState)
+        const fileInputC3 = document.getElementById('file-input');
+        
+        fileInputC3.onchange = async (e) => {
+            const files = Array.from(e.target.files);
+            // Ищем пару файлов .json и .uistate.json
+            const jFile = files.find(f => f.name.endsWith('.json') && !f.name.endsWith('.uistate.json'));
+            const uFile = files.find(f => f.name.endsWith('.uistate.json'));
+            
+            if (jFile && uFile) {
+                try {
+                    const jData = JSON.parse(await jFile.text());
+                    const uData = JSON.parse(await uFile.text());
+                    app.load(jData, uData);
+                    document.getElementById('filename-display').textContent = jFile.name;
+                    document.getElementById('status-bar').textContent = `${jData.nodes.length} nodes loaded`;
+                } catch(err) { alert("Error parsing JSON: " + err.message); }
+            } else {
+                alert("Please select both .json and .uistate.json files");
+            }
+            e.target.value = ''; // Reset input to allow re-selection
         };
 
-        window.addEventListener('DOMContentLoaded', () => {
-            // 1. Сначала убеждаемся, что редактор создан
-            app.editor = new FlowchartEditor('canvas');
+        // 3. MiniFlow Import Logic
+        const fileInputMini = document.getElementById('file-input-mini');
+        
+        fileInputMini.onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            try {
+                const text = await file.text();
+                const json = JSON.parse(text);
+                app.importMiniFlow(json);
+            } catch (err) {
+                alert("Error reading MiniFlow file: " + err.message);
+                console.error(err);
+            }
+            e.target.value = ''; 
+        };
 
-            // 2. Ссылки на меню
-            const menus = {
-                file: { btn: document.getElementById('fileMenuBtn'), drop: document.getElementById('fileDropdown') },
-                edit: { btn: document.getElementById('editMenuBtn'), drop: document.getElementById('editDropdown') },
-                view: { btn: document.getElementById('viewMenuBtn'), drop: document.getElementById('viewDropdown') }
+        // 4. Edit Mode Controls
+        document.getElementById('btn-toggle-mode').onclick = () => {
+            if (app.state.mode === 'view') app.setMode('edit');
+            else {
+                app.rebuildConnectivity();
+                app.setMode('view');
+                document.getElementById('status-bar').textContent = 'Changes Saved locally (Memory)';
+            }
+        };
+
+        document.getElementById('btn-cancel-edit').onclick = () => {
+            app.data.flowchart = app.data.original; // Restore from backup
+            app.setMode('view');
+        };
+
+        // 5. Save / Export C3 Logic
+        const saveFile = () => {
+            if (!app.data.flowchart) {
+                alert("No flowchart data to export");
+                return;
+            }
+
+            // Перестраиваем связи перед сохранением
+            app.rebuildConnectivity();
+            
+            const download = (content, name) => {
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(new Blob([JSON.stringify(content, null, '\t')], {type: 'application/json'}));
+                a.download = name; 
+                a.click();
             };
-
-            function closeAllDropdowns() {
-                Object.values(menus).forEach(m => {
-                    if(m.drop) m.drop.style.display = 'none';
-                    if(m.btn) m.btn.classList.remove('active');
-                });
-            }
-
-            // 3. Обработчики кликов по пунктам меню
-            Object.values(menus).forEach(m => {
-                if (!m.btn) return;
-                m.btn.addEventListener('click', (e) => {
-                    if (m.btn.style.pointerEvents === 'none') return;
-                    e.stopPropagation();
-                    const isAlreadyOpen = m.drop.style.display === 'block';
-                    closeAllDropdowns();
-                    if (!isAlreadyOpen) {
-                        m.drop.style.display = 'block';
-                        m.btn.classList.add('active');
-                    }
-                });
-            });
-
-            document.addEventListener('click', () => closeAllDropdowns());
-
-            // 4. Логика импорта файлов
-            const fileInput = document.getElementById('jsonFiles');
-            const importTrigger = document.getElementById('importTrigger');
             
-            if (importTrigger) {
-                importTrigger.addEventListener('click', () => fileInput.click());
-            }
-
-            if (fileInput) {
-                fileInput.addEventListener('change', async (e) => {
-                    const files = Array.from(e.target.files);
-                    if (files.length === 0) return;
-
-                    const jsonFile = files.find(f => f.name.endsWith('.json') && !f.name.endsWith('.uistate.json'));
-                    if (!jsonFile) return alert("Ошибка: Выберите основной файл .json");
-
-                    const baseName = jsonFile.name.replace('.json', '');
-                    const expectedUistate = baseName + '.uistate.json';
-                    const uistateFile = files.find(f => f.name === expectedUistate);
-
-                    if (!uistateFile) return alert(`Ошибка: В выбранных файлах не найден сопутствующий файл состояния:\n${expectedUistate}`);
-
-                    try {
-                        app.jsonData = JSON.parse(await jsonFile.text());
-                        app.uistateData = JSON.parse(await uistateFile.text());
-                        
-                        app.editor.loadFlowchart(app.jsonData, app.uistateData);
-                        
-                        // Активация меню Edit
-                        menus.edit.btn.style.opacity = "1";
-                        menus.edit.btn.style.pointerEvents = "auto";
-                        
-                        const statusEl = document.getElementById('status');
-                        const fnameEl = document.getElementById('current-filename');
-                        if(statusEl) statusEl.textContent = `Nodes: ${app.jsonData.nodes.length}`;
-                        if(fnameEl) fnameEl.textContent = jsonFile.name.toUpperCase();
-                        
-                        fileInput.value = ''; // Сброс для возможности повторного выбора
-                    } catch (err) {
-                        alert("Ошибка чтения JSON: " + err.message);
-                    }
-                });
-            }
-
-            // 5. Кнопки Edit Mode и Reset View
-            const toggleEditBtn = document.getElementById('toggleEditModeBtn');
-            const cancelEditBtn = document.getElementById('menuCancelEditBtn');
-            const menuSaveBtn = document.getElementById('menuSaveBtn');
-            const menuSaveAsBtn = document.getElementById('menuSaveAsBtn');
-
-            if (toggleEditBtn) {
-                toggleEditBtn.addEventListener('click', () => {
-                    if (!app.editor.editMode) {
-                        app.editor.enterEditMode();
-                        toggleEditBtn.textContent = "Exit & Save Changes";
-                        if(cancelEditBtn) cancelEditBtn.style.display = "block";
-                        
-                        [menuSaveBtn, menuSaveAsBtn].forEach(btn => {
-                            if(btn) {
-                                btn.classList.remove('disabled');
-                                btn.style.opacity = "1";
-                            }
-                        });
-                    } else {
-                        app.editor.saveFlowchart();
-                        resetEditMenuUI();
-                    }
-                });
-            }
-
-            if (cancelEditBtn) {
-                cancelEditBtn.addEventListener('click', () => {
-                    app.editor.exitEditMode(false);
-                    resetEditMenuUI();
-                });
-            }
-
-            function resetEditMenuUI() {
-                if(toggleEditBtn) toggleEditBtn.textContent = "Enter Edit Mode";
-                if(cancelEditBtn) cancelEditBtn.style.display = "none";
-                
-                [menuSaveBtn, menuSaveAsBtn].forEach(btn => {
-                    if(btn) {
-                        btn.classList.add('disabled');
-                        btn.style.opacity = "0.5";
-                    }
-                });
-            }
+            const name = app.data.flowchart.name || 'flowchart';
+            download(app.data.flowchart, name + '.json');
+            download(app.data.ui, name + '.uistate.json');
             
-            // Сохранение по меню
-            if(menuSaveBtn) {
-                menuSaveBtn.addEventListener('click', () => {
-                    if(!menuSaveBtn.classList.contains('disabled')) app.editor.saveFlowchart();
-                });
+            // Если были в режиме редактирования — выходим (стандартное поведение Save)
+            // Если в режиме просмотра (Export) — остаемся как есть
+            if (app.state.mode === 'edit') {
+                app.setMode('view');
             }
-            if(menuSaveAsBtn) {
-                menuSaveAsBtn.addEventListener('click', () => {
-                    if(!menuSaveAsBtn.classList.contains('disabled')) app.editor.saveFlowchartAs();
-                });
-            }
+        };
 
-            const resetViewBtn = document.getElementById('menuResetViewBtn');
-            if(resetViewBtn) {
-                resetViewBtn.addEventListener('click', () => app.editor.resetView());
+        // 6. View Controls
+        document.getElementById('btn-reset-view').onclick = () => { app.view.zoom = 1; app.view.panX=0; app.view.panY=0; app.render(); };
+
+        // 7. Menu Item Bindings (File Menu)
+
+        // -- Stubs --
+        document.getElementById('btn-new').onclick = () => alert("New File: Функция пока не реализована (Заглушка)");
+        document.getElementById('btn-open').onclick = () => alert("Open File: Функция пока не реализована (Заглушка)");
+        
+        const saveStubAction = () => alert("Save (Ctrl+S): Локальное сохранение пока не реализовано. Используйте Export.");
+        document.getElementById('btn-save-stub').onclick = saveStubAction;
+        
+        const saveAsStubAction = () => alert("Save As (Shift+Ctrl+S): Функция пока не реализована. Используйте Export.");
+        document.getElementById('btn-save-as-stub').onclick = saveAsStubAction;
+
+        // -- Import --
+        document.getElementById('btn-import-c3').onclick = () => fileInputC3.click();
+        document.getElementById('btn-import-mini').onclick = () => fileInputMini.click();
+
+        // -- Export --
+        document.getElementById('btn-export-c3').onclick = () => saveFile(); // Export C3 (JSON + UIState)
+        document.getElementById('btn-export-mini').onclick = () => {
+             if (!app.data.flowchart) return alert("No flowchart to export");
+             app.exportMiniFlow();
+        };
+
+        // 8. Hotkeys Handler
+        document.addEventListener('keydown', (e) => {
+            // Ctrl+S / Cmd+S
+            if ((e.ctrlKey || e.metaKey) && e.code === 'KeyS') {
+                e.preventDefault(); 
+                if (e.shiftKey) {
+                    saveAsStubAction();
+                } else {
+                    saveStubAction();
+                }
             }
-            
-            // 6. Кнопки тулбара (Delete, Add Output и т.д.)
-            document.getElementById('addNodeBtn').addEventListener('click', () => {
-                app.editor.addNodeAt(app.editor.canvas.width / 2, app.editor.canvas.height / 2);
-            });
-            document.getElementById('deleteNodeBtn').addEventListener('click', () => app.editor.deleteNode());
-            document.getElementById('addOutputBtn').addEventListener('click', () => app.editor.addOutput());
-            document.getElementById('enableNodeBtn').addEventListener('click', () => app.editor.toggleNodeEnabled());
-            document.getElementById('setStartBtn').addEventListener('click', () => app.editor.setStartNode());
         });
+
+        // 9. Toolbar Actions
+        const toolAction = (id, fn) => document.getElementById(id).onclick = fn;
+        toolAction('tool-add-node', () => app.addNode(app.canvas.width/2, app.canvas.height/2));
+        toolAction('tool-del-node', () => app.deleteNode(app.state.selection.node));
+        toolAction('tool-add-out', () => document.getElementById('prop-add-out').click());
+        toolAction('tool-enable', () => { if(app.state.selection.node) { app.state.selection.node.e = !app.state.selection.node.e; app.generateProperties(app.state.selection.node); app.render(); }});
+        toolAction('tool-start', () => { if(app.state.selection.node) { app.data.flowchart.nodes.forEach(n=>n.s=false); app.state.selection.node.s=true; app.generateProperties(app.state.selection.node); app.render(); }});
+
     </script>
 </body>
 </html>
