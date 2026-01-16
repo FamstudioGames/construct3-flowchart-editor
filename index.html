@@ -36,16 +36,20 @@
                     Export
                     <span class="arrow">▶</span>
                     <div class="submenu">
-                        <div id="btn-export-c3" class="dropdown-item">Export (*.json & *.uistate.json)</div>
-                        <div id="btn-export-mini" class="dropdown-item">Export MiniFlow (*.miniflow.json)</div>
+                        <div id="btn-export-c3" class="dropdown-item">Export (*.json & *.uistate.json) <span class="shortcut">Ctrl+E</span></div>
+                        <div id="btn-export-mini" class="dropdown-item">Export MiniFlow (*.miniflow.json) <span class="shortcut">Ctrl+Shift+E</span></div>
                     </div>
                 </div>
             </div>
         </div>
-        <div class="menu-item" id="menu-edit-wrapper" style="opacity: 0.5; pointer-events: none;">Edit
+        <div class="menu-item" id="menu-edit-wrapper">Edit
             <div class="dropdown" id="editDropdown">
                 <div id="btn-toggle-mode" class="dropdown-item">Enter Edit Mode</div>
                 <div id="btn-cancel-edit" class="dropdown-item" style="color: var(--danger); display: none;">Cancel Editing</div>
+                <div class="separator"></div>
+                <div id="btn-undo" class="dropdown-item disabled">Undo <span class="shortcut">Ctrl+Z</span></div>
+                <div id="btn-redo" class="dropdown-item disabled">Redo <span class="shortcut">Ctrl+Shift+Z</span></div>
+                <div id="btn-history" class="dropdown-item">Undo History...</div>
             </div>
         </div>
         <div class="menu-item" data-menu="view">View

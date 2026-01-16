@@ -101,16 +101,13 @@ document.addEventListener('keydown', e => {
     if (isInputActive) return;
 
     const isCtrl = e.ctrlKey || e.metaKey;
+    const isShift = e.shiftKey;
 
-    // 4. SAVE (Ctrl+S)
+    // --- SAVE / SAVE AS (Project .flowproj) ---
     if (isCtrl && e.code === 'KeyS') {
-        e.preventDefault(); 
-        if (e.shiftKey) {
-            document.getElementById('btn-save-as-stub').click();
-        } else {
-            const btn = document.getElementById('btn-export-c3') || document.getElementById('btn-save-stub');
-            if(btn) btn.click();
-        }
+        e.preventDefault();
+        if (isShift) app.projectSaveAs();
+        else app.projectSave();
     }
 
     // 5. COPY (Ctrl+C)
@@ -127,6 +124,31 @@ document.addEventListener('keydown', e => {
             const mx = app.state.lastMouse.x - rect.left;
             const my = app.state.lastMouse.y - rect.top;
             app.pasteNode(mx, my);
+        }
+    }
+
+    // 7. Undo / Redo
+    if (isCtrl && e.code === 'KeyZ') {
+        e.preventDefault();
+        if (isShift) app.history.redo();
+        else app.history.undo();
+    }
+    
+    // 8.Redo Ctrl+Y
+    if (isCtrl && e.code === 'KeyY') {
+        e.preventDefault();
+        app.history.redo();
+    }
+
+    // 9. EXPORT (Ctrl + E / Ctrl + Shift + E) ---
+    if (isCtrl && e.code === 'KeyE') {
+        e.preventDefault();
+        if (isShift) {
+            // Ctrl + Shift + E -> MiniFlow
+            if (app.data.flowchart) app.exportMiniFlow();
+        } else {
+            // Ctrl + E -> C3 JSONs
+            app.exportC3();
         }
     }
 });
@@ -211,9 +233,13 @@ fileInputC3.onchange = async (e) => {
         try {
             const jData = JSON.parse(await jFile.text());
             const uData = JSON.parse(await uFile.text());
-            app.load(jData, uData, jFile.name);
-            document.getElementById('status-bar').textContent = `${jData.nodes.length} nodes loaded`;
-        } catch(err) { alert("Error parsing JSON: " + err.message); }
+            
+            app.load(jData, uData, jFile.name, true); 
+            
+            document.getElementById('status-bar').textContent = `Imported ${jData.nodes.length} nodes into project`;
+        } catch(err) { 
+            alert("Error parsing JSON: " + err.message); 
+        }
     } else {
         alert("Please select both .json and .uistate.json files");
     }
@@ -235,10 +261,15 @@ fileInputMini.onchange = async (e) => {
 };
 
 // --- MENU BAR ACTIONS ---
-document.getElementById('btn-new').onclick = () => alert("New File: Функция пока не реализована (Заглушка)");
-document.getElementById('btn-open').onclick = () => alert("Open File: Функция пока не реализована (Заглушка)");
-document.getElementById('btn-save-stub').onclick = () => alert("Save (Ctrl+S): Локальное сохранение пока не реализовано. Используйте Export.");
-document.getElementById('btn-save-as-stub').onclick = () => alert("Save As (Shift+Ctrl+S): Функция пока не реализована. Используйте Export.");
+document.getElementById('btn-new').onclick = () => {
+    if(confirm("Create new project? Current unsaved changes will be lost.")) {
+        location.reload(); // Простой сброс стейта
+    }
+};
+
+document.getElementById('btn-open').onclick = () => app.projectOpen();
+document.getElementById('btn-save-stub').onclick = () => app.projectSave();
+    document.getElementById('btn-save-as-stub').onclick = () => app.projectSaveAs();
 
 document.getElementById('btn-import-c3').onclick = () => fileInputC3.click();
 document.getElementById('btn-import-mini').onclick = () => fileInputMini.click();
@@ -250,19 +281,7 @@ document.getElementById('btn-export-mini').onclick = () => {
 
 document.getElementById('btn-export-c3').onclick = () => {
     if (!app.data.flowchart) return alert("No flowchart data to export");
-    app.rebuildConnectivity();
-    const name = app.data.flowchart.name || 'flowchart';
-    
-    const download = (content, filename) => {
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(new Blob([JSON.stringify(content, null, '\t')], {type: 'application/json'}));
-        a.download = filename; 
-        a.click();
-    };
-    
-    download(app.data.flowchart, name + '.json');
-    download(app.data.ui, name + '.uistate.json');
-    if (app.state.mode === 'edit') app.setMode('view');
+    app.exportC3();
 };
 
 document.getElementById('btn-toggle-mode').onclick = () => {

@@ -1,5 +1,71 @@
 import { CONFIG, Utils } from './config.js';
 
+class CommandManager {
+    constructor(editor) {
+        this.editor = editor;
+        this.undoStack = [];
+        this.redoStack = [];
+        this.limit = 50;
+    }
+
+    // Сохраняем снимок состояния перед действием
+    execute(name) {
+        const snapshot = JSON.stringify({
+            flowchart: this.editor.data.flowchart,
+            ui: this.editor.data.ui
+        });
+        
+        this.undoStack.push({ name, snapshot });
+        this.redoStack = [];
+        if (this.undoStack.length > this.limit) this.undoStack.shift();
+        this.updateUI();
+    }
+
+    undo() {
+        if (this.undoStack.length === 0) return;
+        
+        // Перед отменой сохраняем текущее состояние в Redo
+        const currentSnapshot = JSON.stringify({
+            flowchart: this.editor.data.flowchart,
+            ui: this.editor.data.ui
+        });
+        const cmd = this.undoStack.pop();
+        this.redoStack.push({ name: cmd.name, snapshot: currentSnapshot });
+        
+        this.restore(cmd.snapshot);
+        this.updateUI();
+    }
+
+    redo() {
+        if (this.redoStack.length === 0) return;
+        const cmd = this.redoStack.pop();
+        
+        const currentSnapshot = JSON.stringify({
+            flowchart: this.editor.data.flowchart,
+            ui: this.editor.data.ui
+        });
+        this.undoStack.push({ name: cmd.name, snapshot: currentSnapshot });
+        
+        this.restore(cmd.snapshot);
+        this.updateUI();
+    }
+
+    restore(json) {
+        const data = JSON.parse(json);
+        this.editor.data.flowchart = data.flowchart;
+        this.editor.data.ui = data.ui;
+        this.editor.render();
+    }
+
+    updateUI() {
+        const status = document.getElementById('status-bar');
+        if (this.undoStack.length > 0) {
+            const lastCmd = this.undoStack[this.undoStack.length - 1];
+            status.textContent = `Last action: ${lastCmd.name}`;
+        }
+    }
+}
+
 export class FlowchartEditor {
     constructor(canvasId) {
         this.canvas = document.getElementById(canvasId);
@@ -36,6 +102,10 @@ export class FlowchartEditor {
         
         this.clipboard = null; 
         this.resize();
+        
+        // Свойства для истории и работы с файлами
+        this.history = new CommandManager(this);
+        this.fileHandle = null; 
     }
 
     resize() {
@@ -1141,20 +1211,87 @@ export class FlowchartEditor {
         });
     }
 
-    load(json, ui, filename = null) {
-        this.data.flowchart = json; this.data.ui = ui;
-        this.view.zoom = ui.flowchart?.z || 1;
-        if (filename) {
-            const nameFromHeader = filename.replace(/\.(json|uistate|miniflow)*$/gi, '');
-            if (!json.name) json.name = nameFromHeader;
+    async load(newLogic, newUI, filename = null, isImport = false) {
+        // Проверяем, пуст ли холст в данный момент
+        const isCanvasEmpty = !this.data.flowchart || this.data.flowchart.nodes.length === 0;
+
+        if (isCanvasEmpty || !isImport) {
+            // ЛОГИКА 1: Чистый холст или открытие файла
+            // Просто копируем данные как есть, сохраняя их оригинальные координаты
+            this.data.flowchart = newLogic;
+            this.data.ui = newUI;
+            this.history.undoStack = [];
+            this.history.redoStack = [];
+            this.fileHandle = null; 
+        } else {
+            // ЛОГИКА 2: SMART IMPORT (Добавление к существующим нодам)
+            this.history.execute("Import Project");
+            
+            // 1. Находим нижнюю границу ТЕКУЩЕГО графа
+            let currentBottomY = -Infinity;
+            this.data.flowchart.nodes.forEach(n => {
+                const outputsCount = n.outputs ? n.outputs.length : 0;
+                const contentH = CONFIG.dims.headerH + (outputsCount * CONFIG.dims.rowH) + CONFIG.dims.footerH + 10;
+                const actualH = Math.max(n.h, contentH);
+                const bottom = n.y + (actualH / 2);
+                if (bottom > currentBottomY) currentBottomY = bottom;
+            });
+
+            // 2. Находим верхнюю границу ИМПОРТИРУЕМОГО графа
+            let importedTopY = Infinity;
+            newLogic.nodes.forEach(n => {
+                const outputsCount = n.outputs ? n.outputs.length : 0;
+                const contentH = CONFIG.dims.headerH + (outputsCount * CONFIG.dims.rowH) + CONFIG.dims.footerH + 10;
+                const actualH = Math.max(n.h, contentH);
+                const top = n.y - (actualH / 2);
+                if (top < importedTopY) importedTopY = top;
+            });
+
+            // 3. Вычисляем точный сдвиг: 
+            // Мы хотим, чтобы верх импортируемого графа встал под низ текущего + 150px
+            const shiftY = (currentBottomY + 150) - importedTopY;
+
+            // 4. Применяем сдвиг и уникальные ID
+            const sidMap = new Map();
+            const timestamp = Date.now();
+
+            newLogic.nodes.forEach(node => {
+                const oldSid = node.sid;
+                const newSid = timestamp + Math.floor(Math.random() * 1000000);
+                sidMap.set(oldSid, newSid);
+                
+                node.sid = newSid;
+                node.y += shiftY; // Сдвигаем на вычисленную разницу
+                node.s = false;    
+            });
+
+            // Исправляем связи внутри импортированного блока
+            newLogic.nodes.forEach(node => {
+                if (node.outputs) {
+                    node.outputs.forEach(out => {
+                        if (out.cnSID && sidMap.has(out.cnSID)) {
+                            out.cnSID = sidMap.get(out.cnSID);
+                        } else {
+                            out.cnSID = null; 
+                        }
+                    });
+                }
+                node.pnSIDs = []; node.poSIDs = []; node.nodeSIDs = [];
+            });
+
+            // 5. Слияние
+            this.data.flowchart.nodes.push(...newLogic.nodes);
+            this.data.ui.nodes.push(...newUI.nodes);
         }
-        if (!json.name) json.name = 'flowchart';
-        document.getElementById('filename-display').textContent = json.name;
-        document.getElementById('zoom-level').textContent = Math.round(this.view.zoom * 100) + '%';
-        this.resetView();
-        document.getElementById('menu-edit-wrapper').style.opacity = "1";
-        document.getElementById('menu-edit-wrapper').style.pointerEvents = "auto";
+
+        if (filename && !isImport) {
+            this.data.flowchart.name = filename.replace(/\.(json|flowproj|uistate|miniflow)*$/gi, '');
+        }
+
+        document.getElementById('filename-display').textContent = this.data.flowchart.name;
+        this.rebuildConnectivity();
         this.render();
+        this.resetView(); 
     }
 
     exportMiniFlow() {
@@ -1232,5 +1369,117 @@ export class FlowchartEditor {
         }
         this.view.panX = 50 - (START_X * this.view.zoom); 
         this.view.panY = 50 - (START_Y * this.view.zoom);
+    }
+
+    // Добавить этот метод в класс FlowchartEditor в js/editor-core.js
+    exportC3() {
+        if (!this.data.flowchart) return alert("No flowchart data to export");
+        
+        this.rebuildConnectivity();
+        const name = this.data.flowchart.name || 'flowchart';
+        
+        const download = (content, filename) => {
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob([JSON.stringify(content, null, '\t')], {type: 'application/json'}));
+            a.download = filename; 
+            a.click();
+            URL.revokeObjectURL(a.href);
+        };
+        
+        // Скачиваем два раздельных файла для C3
+        download(this.data.flowchart, name + '.json');
+        download(this.data.ui, name + '.uistate.json');
+        
+        document.getElementById('status-bar').textContent = "Exported as C3 Files (.json + .uistate.json)";
+    }
+
+    async projectSave() {
+        // Проверяем, поддерживает ли браузер API и не заблокирован ли он (например, в iframe itch.io)
+        const isFileSystemSupported = 'showSaveFilePicker' in window && (() => {
+            try { return window.self === window.top; } catch { return false; }
+        })();
+
+        if (this.fileHandle && isFileSystemSupported) {
+            try {
+                this.rebuildConnectivity();
+                const projectData = this._prepareProjectJson();
+                const writable = await this.fileHandle.createWritable();
+                await writable.write(JSON.stringify(projectData, null, "\t"));
+                await writable.close();
+                document.getElementById('status-bar').textContent = "Project saved natively";
+                return;
+            } catch (err) {
+                console.warn("Native save failed, falling back to download", err);
+            }
+        }
+        
+        // Если мы на itch.io или API недоступно — просто вызываем скачивание файла
+        this.projectSaveAs();
+    }
+
+    // Вспомогательный метод
+    _prepareProjectJson() {
+        return {
+            format: "flowproj",
+            version: "1.1.0",
+            meta: {
+                title: this.data.flowchart.name,
+                modified: Date.now()
+            },
+            projectData: {
+                logic: this.data.flowchart,
+                uistate: this.data.ui
+            }
+        };
+    }
+
+    async projectSaveAs() {
+        const projectData = this._prepareProjectJson();
+        const filename = (this.data.flowchart.name || "project") + ".flowproj";
+
+        // Попытка использовать системный диалог (работает в Chrome/Edge вне iframe)
+        if ('showSaveFilePicker' in window) {
+            try {
+                const handle = await window.showSaveFilePicker({
+                    suggestedName: filename,
+                    types: [{ description: 'Flowchart Project', accept: { 'application/json': ['.flowproj'] } }]
+                });
+                this.fileHandle = handle;
+                const writable = await handle.createWritable();
+                await writable.write(JSON.stringify(projectData, null, "\t"));
+                await writable.close();
+                return;
+            } catch (err) {
+                if (err.name === 'AbortError') return;
+                // Если ошибка не в отмене, а в безопасности (Itch.io), идем к классическому скачиванию
+            }
+        }
+
+        // Классический Fallback: Скачивание через Blob (работает ВЕЗДЕ, включая itch.io)
+        const blob = new Blob([JSON.stringify(projectData, null, "\t")], {type: 'application/json'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+        document.getElementById('status-bar').textContent = "Project exported as file (Download)";
+    }
+
+    async projectOpen() {
+        try {
+            const [handle] = await window.showOpenFilePicker({
+                types: [{ description: 'Flowchart Project', accept: { 'application/json': ['.flowproj'] } }]
+            });
+            this.fileHandle = handle;
+            const file = await handle.getFile();
+            const content = JSON.parse(await file.text());
+            
+            if (content.format === "flowproj") {
+                this.load(content.projectData.logic, content.projectData.uistate, file.name);
+            } else {
+                alert("Not a valid .flowproj file");
+            }
+        } catch (err) { console.error(err); }
     }
 }
