@@ -3,66 +3,130 @@ import { CONFIG, Utils } from './config.js';
 class CommandManager {
     constructor(editor) {
         this.editor = editor;
-        this.undoStack = [];
-        this.redoStack = [];
+        this.undoStack = []; 
+        this.index = -1;     
         this.limit = 50;
+        this.isRestoring = false;
     }
 
-    // Сохраняем снимок состояния перед действием
-    execute(name) {
+    // Инициализация начального состояния (вызывается один раз при старте)
+    saveInitialState() {
         const snapshot = JSON.stringify({
             flowchart: this.editor.data.flowchart,
             ui: this.editor.data.ui
         });
-        
-        this.undoStack.push({ name, snapshot });
-        this.redoStack = [];
-        if (this.undoStack.length > this.limit) this.undoStack.shift();
+        this.undoStack = [{ name: "Empty Canvas", snapshot, timestamp: Date.now() }];
+        this.index = 0;
         this.updateUI();
+        this.updateHistoryMenu();
+    }
+
+    execute(name) {
+        if (this.isRestoring) return;
+
+        // Удаляем "будущее", если мы в прошлом
+        if (this.index < this.undoStack.length - 1) {
+            this.undoStack = this.undoStack.slice(0, this.index + 1);
+        }
+
+        // Делаем снимок состояния ПОСЛЕ завершения действия
+        const snapshot = JSON.stringify({
+            flowchart: this.editor.data.flowchart,
+            ui: this.editor.data.ui
+        });
+
+        this.undoStack.push({ name, snapshot, timestamp: Date.now() });
+        
+        if (this.undoStack.length > this.limit) {
+            this.undoStack.shift();
+        } else {
+            this.index++;
+        }
+
+        this.updateUI();
+        this.updateHistoryMenu();
     }
 
     undo() {
-        if (this.undoStack.length === 0) return;
-        
-        // Перед отменой сохраняем текущее состояние в Redo
-        const currentSnapshot = JSON.stringify({
-            flowchart: this.editor.data.flowchart,
-            ui: this.editor.data.ui
-        });
-        const cmd = this.undoStack.pop();
-        this.redoStack.push({ name: cmd.name, snapshot: currentSnapshot });
-        
-        this.restore(cmd.snapshot);
+        if (this.index <= 0) return; // Нельзя откатиться дальше Initial State
+        this.index--;
+        this.restore(this.undoStack[this.index].snapshot);
         this.updateUI();
+        this.updateHistoryMenu();
     }
 
     redo() {
-        if (this.redoStack.length === 0) return;
-        const cmd = this.redoStack.pop();
-        
-        const currentSnapshot = JSON.stringify({
-            flowchart: this.editor.data.flowchart,
-            ui: this.editor.data.ui
-        });
-        this.undoStack.push({ name: cmd.name, snapshot: currentSnapshot });
-        
-        this.restore(cmd.snapshot);
+        if (this.index >= this.undoStack.length - 1) return;
+        this.index++;
+        this.restore(this.undoStack[this.index].snapshot);
         this.updateUI();
+        this.updateHistoryMenu();
+    }
+
+    // Восстановление к конкретному шагу из истории
+    restoreToStep(index) {
+        if (index < 0 || index >= this.undoStack.length) return;
+        this.index = index;
+        this.restore(this.undoStack[this.index].snapshot);
+        this.updateUI();
+        this.updateHistoryMenu();
     }
 
     restore(json) {
-        const data = JSON.parse(json);
-        this.editor.data.flowchart = data.flowchart;
-        this.editor.data.ui = data.ui;
-        this.editor.render();
+        this.isRestoring = true;
+        try {
+            const data = JSON.parse(json);
+            this.editor.data.flowchart = JSON.parse(JSON.stringify(data.flowchart));
+            this.editor.data.ui = JSON.parse(JSON.stringify(data.ui));
+            this.editor.rebuildConnectivity();
+            this.editor.render();
+            this.editor.updateUI();
+        } finally {
+            this.isRestoring = false;
+        }
     }
 
     updateUI() {
-        const status = document.getElementById('status-bar');
-        if (this.undoStack.length > 0) {
-            const lastCmd = this.undoStack[this.undoStack.length - 1];
-            status.textContent = `Last action: ${lastCmd.name}`;
-        }
+        const btnUndo = document.getElementById('btn-undo');
+        const btnRedo = document.getElementById('btn-redo');
+        if (btnUndo) btnUndo.classList.toggle('disabled', this.index <= 0);
+        if (btnRedo) btnRedo.classList.toggle('disabled', this.index >= this.undoStack.length - 1);
+    }
+
+    updateHistoryMenu() {
+        const historyMenu = document.getElementById('history-submenu');
+        if (!historyMenu) return;
+        historyMenu.innerHTML = '';
+        
+        [...this.undoStack].reverse().forEach((cmd, revIdx) => {
+            const actualIdx = this.undoStack.length - 1 - revIdx;
+            const item = document.createElement('div');
+            item.className = 'history-step' + (actualIdx === this.index ? ' active' : '');
+            
+            const time = new Date(cmd.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            item.innerHTML = `<span>${cmd.name}</span><span class="history-time">${time}</span>`;
+            
+            item.onclick = (e) => {
+                e.stopPropagation();
+                this.restoreToStep(actualIdx);
+            };
+            historyMenu.appendChild(item);
+        });
+    }
+
+    clear() {
+        this.undoStack = [];
+        this.redoStack = [];
+        this.updateUI();
+        this.updateHistoryMenu();
+    }
+
+    // Debounced execute для текстовых полей
+    executeDebounced(name, delay = 1000) {
+        clearTimeout(this._debounceTimer);
+        this._debounceTimer = setTimeout(() => {
+            this.execute(name);
+        }, delay);
     }
 }
 
@@ -71,7 +135,11 @@ export class FlowchartEditor {
         this.canvas = document.getElementById(canvasId);
         this.ctx = this.canvas.getContext('2d');
         
-        this.data = { flowchart: null, ui: null, original: null };
+        this.data = { 
+            flowchart: { name: "New Project", nodes: [] }, 
+            ui: { nodes: [] }, 
+            original: null 
+        };
         this.view = { zoom: 1, panX: 0, panY: 0 };
         
         this.state = {
@@ -79,9 +147,8 @@ export class FlowchartEditor {
             dragging: false,
             lastMouse: { x: 0, y: 0 },
             
-            // Множественное выделение
-            selection: [], // Массив выделенных нод
-            selectionType: 'none', // 'none' | 'node' | 'connection'
+            selection: [], 
+            selectionType: 'none', 
             selectedOutput: null, 
             
             dragNode: null, 
@@ -94,18 +161,20 @@ export class FlowchartEditor {
             resizeTarget: null,
             resizeDir: null,
             
-            // Marquee (Рамка)
             marqueeStart: null, 
             marqueeCurrent: null,
-            isSpacePressed: false 
+            isSpacePressed: false,
+            hasMovedDuringDrag: false // Флаг для истории
         };
         
         this.clipboard = null; 
         this.resize();
         
-        // Свойства для истории и работы с файлами
         this.history = new CommandManager(this);
         this.fileHandle = null; 
+
+        // Инициализируем историю начальным состоянием
+        setTimeout(() => this.history.saveInitialState(), 0);
     }
 
     resize() {
@@ -123,6 +192,10 @@ export class FlowchartEditor {
 
         // --- 1. MOUSE DOWN ---
         if (type === 'down') {
+            if (this.state.mode === 'edit') {
+                this.state.hasMovedDuringDrag = false;
+            }
+
             if (e.button === 1 || (e.button === 0 && this.state.isSpacePressed)) {
                 this.state.dragging = true;
                 this.state.lastMouse = { x: e.clientX, y: e.clientY };
@@ -291,6 +364,8 @@ export class FlowchartEditor {
             }
 
             if (this.state.dragNode) {
+                this.state.hasMovedDuringDrag = true; // Фиксируем, что движение было
+
                 const wp = Utils.screenToWorld(mx, my, this.view.panX, this.view.panY, this.view.zoom);
                 const dx = wp.x - this.state.dragStartWorld.x;
                 const dy = wp.y - this.state.dragStartWorld.y;
@@ -355,6 +430,15 @@ export class FlowchartEditor {
         
         // --- 3. MOUSE UP ---
         else if (type === 'up') {
+            if (this.state.mode === 'edit') {
+                if (this.state.dragNode && this.state.hasMovedDuringDrag) {
+                    this.history.execute("Move node(s)");
+                }
+                if (this.state.resizing && this.state.hasMovedDuringDrag) {
+                    this.history.execute("Resize node");
+                }
+            }
+
             if (this.state.marqueeStart) {
                 this.applyMarqueeSelection(e.shiftKey);
                 this.state.marqueeStart = null;
@@ -385,6 +469,8 @@ export class FlowchartEditor {
             } else {
                 this.canvas.style.cursor = 'default';
             }
+            
+            this.state.hasMovedDuringDrag = false;
         }
     }
 
@@ -504,7 +590,7 @@ export class FlowchartEditor {
     // --- HIT TESTING ---
 
     hitTestNode(mx, my) {
-        if (!this.data.flowchart) return null;
+    if (!this.data.flowchart || !this.data.flowchart.nodes) return null;
         const wp = Utils.screenToWorld(mx, my, this.view.panX, this.view.panY, this.view.zoom);
         for (let i = this.data.flowchart.nodes.length - 1; i >= 0; i--) {
             const n = this.data.flowchart.nodes[i];
@@ -693,6 +779,7 @@ export class FlowchartEditor {
     // --- LOGIC & CRUD ---
 
     connect(source, output, target) {
+        this.history.execute("Connect nodes"); // запомнили действие
         output.cnSID = target.sid;
     }
 
@@ -710,6 +797,7 @@ export class FlowchartEditor {
     }
 
     addNode(screenX, screenY) {
+        this.history.execute("Add Node"); // запомнили действие
         const wp = Utils.screenToWorld(screenX, screenY, this.view.panX, this.view.panY, this.view.zoom);
         const defaultOutputsCount = 1;
         const calcH = CONFIG.dims.headerH + (defaultOutputsCount * CONFIG.dims.rowH) + CONFIG.dims.footerH + 10;
@@ -744,6 +832,14 @@ export class FlowchartEditor {
     }
 
     deleteSelection() {
+        if (this.state.selection.length === 0) return;
+    
+        if (this.state.selectionType === 'node') {
+            this.history.execute(`Delete ${this.state.selection.length} node(s)`); // запомнили действие
+        } else if (this.state.selectionType === 'connection') {
+            this.history.execute(`Delete ${this.state.selection.length} connection(s)`); // запомнили действие
+        }
+        
         if (this.state.selection.length === 0) return;
         if (this.state.selectionType === 'node') {
             const nodesToDelete = [...this.state.selection];
@@ -816,6 +912,9 @@ export class FlowchartEditor {
 
     pasteNode(screenX, screenY) {
         if (!this.clipboard || !this.clipboard.items) return;
+
+        this.history.execute(`Paste ${this.clipboard.items.length} node(s)`); // запомнили действие
+
         const wp = Utils.screenToWorld(screenX, screenY, this.view.panX, this.view.panY, this.view.zoom);
         this.selectSingle(null);
 
@@ -1084,12 +1183,14 @@ export class FlowchartEditor {
     generateProperties(node) {
         const p = document.getElementById('properties-panel');
         const val = (v) => (v || '').replace(/"/g, '&quot;');
+        
         let html = `<div class="prop-group"><h3>Node Properties</h3>
             <div class="prop-row"><label>Caption</label><input type="text" class="node-input" data-key="c" value="${val(node.c)}"></div>
             <div class="prop-row"><label>Tags</label><input type="text" class="node-input" data-key="t" value="${val(node.t)}"></div>
             <div class="prop-row"><label><input type="checkbox" class="node-check" data-key="e" ${node.e?'checked':''}> Enabled</label></div>
             <div class="prop-row"><label><input type="checkbox" class="node-check" data-key="s" ${node.s?'checked':''}> Start Node</label></div>
         </div><div class="prop-group"><h3>Outputs <button class="btn small" style="float:right" id="prop-add-out">Add</button></h3><div id="out-list">`;
+        
         node.outputs.forEach((o, i) => {
             html += `<div class="output-item ${o.default?'default':''}">
                 <div class="output-header"><strong>#${i+1}</strong> <button class="btn small danger" data-del-out="${i}">X</button></div>
@@ -1101,39 +1202,101 @@ export class FlowchartEditor {
         });
         html += '</div></div>';
         p.innerHTML = html;
-        p.querySelectorAll('.node-input').forEach(el => el.oninput = e => { node[e.target.dataset.key] = e.target.value; this.render(); });
-        p.querySelectorAll('.node-check').forEach(el => el.onchange = e => { 
-            if(e.target.dataset.key === 's' && e.target.checked) this.data.flowchart.nodes.forEach(n=>n.s=false);
-            node[e.target.dataset.key] = e.target.checked; 
-            this.render(); 
+        
+        // Добавлен debounce для текстовых полей
+        p.querySelectorAll('.node-input').forEach(el => {
+            el.oninput = e => { 
+                // Используем debounced версию, чтобы не создавать снимок на каждую букву
+                this.history.executeDebounced("Edit node property");
+                node[e.target.dataset.key] = e.target.value; 
+                this.render(); 
+            };
         });
-        p.querySelectorAll('.out-input').forEach(el => el.oninput = e => {
-            let v = e.target.value;
-            if(e.target.tagName === 'TEXTAREA') v = v.replace(/\n/g, '\\n');
-            node.outputs[e.target.dataset.idx][e.target.dataset.key] = v;
-            this.render();
+        
+        // Добавлено сохранение в историю для чекбоксов
+        p.querySelectorAll('.node-check').forEach(el => {
+            el.onchange = e => {
+                this.history.execute("Toggle node option"); // ← ДОБАВЛЕНО
+                
+                if(e.target.dataset.key === 's' && e.target.checked) {
+                    this.data.flowchart.nodes.forEach(n => n.s = false);
+                }
+                node[e.target.dataset.key] = e.target.checked; 
+                this.render(); 
+            };
         });
-        p.querySelectorAll('.out-check').forEach(el => el.onchange = e => {
-            const idx = e.target.dataset.idx;
-            const key = e.target.dataset.key;
-            if (key === 'default' && e.target.checked) node.outputs.forEach(o => o.default = false);
-            node.outputs[idx][key] = e.target.checked;
-            this.generateProperties(node);
-            this.render();
+        
+        // Добавлен debounce для output текстовых полей
+        p.querySelectorAll('.out-input').forEach(el => {
+            el.oninput = e => {
+                this.history.executeDebounced("Edit output property"); // ← ДОБАВЛЕНО
+                
+                let v = e.target.value;
+                if(e.target.tagName === 'TEXTAREA') v = v.replace(/\n/g, '\\n');
+                node.outputs[e.target.dataset.idx][e.target.dataset.key] = v;
+                this.render();
+            };
         });
+        
+        // Добавлено сохранение в историю для output чекбоксов
+        p.querySelectorAll('.out-check').forEach(el => {
+            el.onchange = e => {
+                this.history.execute("Toggle output option"); // ← ДОБАВЛЕНО
+                
+                const idx = e.target.dataset.idx;
+                const key = e.target.dataset.key;
+                if (key === 'default' && e.target.checked) {
+                    node.outputs.forEach(o => o.default = false);
+                }
+                node.outputs[idx][key] = e.target.checked;
+                this.generateProperties(node);
+                this.render();
+            };
+        });
+        
         const nodeIdx = this.data.flowchart.nodes.indexOf(node);
+        
+        // Добавлено сохранение в историю при добавлении output
         document.getElementById('prop-add-out').onclick = () => {
-            node.outputs.push({ sid: Utils.uuid(), name: "Option", value:"", enable:true, default:false });
+            this.history.execute("Add output"); // ← ДОБАВЛЕНО
+            
+            node.outputs.push({ 
+                sid: Utils.uuid(), 
+                name: "Option", 
+                value: "", 
+                enable: true, 
+                default: false 
+            });
             node.h += CONFIG.dims.rowH; 
-            if (this.data.ui.nodes[nodeIdx]) this.data.ui.nodes[nodeIdx].outputs.push({ color: [0,0,0,1], linkMode: "line", propertiesBar: {} });
-            this.generateProperties(node); this.render();
+            
+            if (this.data.ui.nodes[nodeIdx]) {
+                this.data.ui.nodes[nodeIdx].outputs.push({ 
+                    color: [0,0,0,1], 
+                    linkMode: "line", 
+                    propertiesBar: {} 
+                });
+            }
+            
+            this.generateProperties(node); 
+            this.render();
         };
-        p.querySelectorAll('[data-del-out]').forEach(b => b.onclick = e => {
-            const outIdx = parseInt(e.target.dataset.delOut);
-            node.outputs.splice(outIdx, 1);
-            node.h = Math.max(this.getMinNodeSize(node).h, node.h - CONFIG.dims.rowH);
-            if (this.data.ui.nodes[nodeIdx] && this.data.ui.nodes[nodeIdx].outputs) this.data.ui.nodes[nodeIdx].outputs.splice(outIdx, 1);
-            this.generateProperties(node); this.render();
+        
+        // Добавлено сохранение в историю при удалении output
+        p.querySelectorAll('[data-del-out]').forEach(b => {
+            b.onclick = e => {
+                this.history.execute("Delete output"); // ← ДОБАВЛЕНО
+                
+                const outIdx = parseInt(e.target.dataset.delOut);
+                node.outputs.splice(outIdx, 1);
+                node.h = Math.max(this.getMinNodeSize(node).h, node.h - CONFIG.dims.rowH);
+                
+                if (this.data.ui.nodes[nodeIdx] && this.data.ui.nodes[nodeIdx].outputs) {
+                    this.data.ui.nodes[nodeIdx].outputs.splice(outIdx, 1);
+                }
+                
+                this.generateProperties(node); 
+                this.render();
+            };
         });
     }
 
@@ -1194,104 +1357,102 @@ export class FlowchartEditor {
     }
 
     rebuildConnectivity() {
+        // Защита от пустого объекта данных
+        if (!this.data.flowchart || !this.data.flowchart.nodes) return;
+
         this.data.flowchart.nodes.forEach(n => {
             n.pnSIDs = []; n.poSIDs = []; n.nodeSIDs = [];
             n.x = Math.round(n.x); n.y = Math.round(n.y);
         });
+
         this.data.flowchart.nodes.forEach(src => {
             src.outputs?.forEach(out => {
                 if (out.cnSID) {
                     const target = this.data.flowchart.nodes.find(n => n.sid === out.cnSID);
                     if (target) {
                         if(!src.nodeSIDs.includes(target.sid)) src.nodeSIDs.push(target.sid);
-                        target.pnSIDs.push(src.sid); target.poSIDs.push(out.sid);
-                    } else out.cnSID = null;
+                        target.pnSIDs.push(src.sid); 
+                        target.poSIDs.push(out.sid);
+                    } else {
+                        out.cnSID = null;
+                    }
                 }
             });
         });
     }
 
     async load(newLogic, newUI, filename = null, isImport = false) {
-        // Проверяем, пуст ли холст в данный момент
-        const isCanvasEmpty = !this.data.flowchart || this.data.flowchart.nodes.length === 0;
+        // Блокируем запись истории во время внутренних изменений
+        this.history.isRestoring = true;
 
-        if (isCanvasEmpty || !isImport) {
-            // ЛОГИКА 1: Чистый холст или открытие файла
-            // Просто копируем данные как есть, сохраняя их оригинальные координаты
-            this.data.flowchart = newLogic;
-            this.data.ui = newUI;
-            this.history.undoStack = [];
-            this.history.redoStack = [];
-            this.fileHandle = null; 
-        } else {
-            // ЛОГИКА 2: SMART IMPORT (Добавление к существующим нодам)
-            this.history.execute("Import Project");
-            
-            // 1. Находим нижнюю границу ТЕКУЩЕГО графа
-            let currentBottomY = -Infinity;
-            this.data.flowchart.nodes.forEach(n => {
-                const outputsCount = n.outputs ? n.outputs.length : 0;
-                const contentH = CONFIG.dims.headerH + (outputsCount * CONFIG.dims.rowH) + CONFIG.dims.footerH + 10;
-                const actualH = Math.max(n.h, contentH);
-                const bottom = n.y + (actualH / 2);
-                if (bottom > currentBottomY) currentBottomY = bottom;
-            });
+        try {
+            const isCanvasEmpty = !this.data.flowchart || this.data.flowchart.nodes.length === 0;
 
-            // 2. Находим верхнюю границу ИМПОРТИРУЕМОГО графа
-            let importedTopY = Infinity;
-            newLogic.nodes.forEach(n => {
-                const outputsCount = n.outputs ? n.outputs.length : 0;
-                const contentH = CONFIG.dims.headerH + (outputsCount * CONFIG.dims.rowH) + CONFIG.dims.footerH + 10;
-                const actualH = Math.max(n.h, contentH);
-                const top = n.y - (actualH / 2);
-                if (top < importedTopY) importedTopY = top;
-            });
+            if (isCanvasEmpty || !isImport) {
+                this.data.flowchart = newLogic;
+                this.data.ui = newUI;
+                this.fileHandle = null; 
+            } else {
+                // ЛОГИКА SMART IMPORT
+                let currentBottomY = -Infinity;
+                this.data.flowchart.nodes.forEach(n => {
+                    const outputsCount = n.outputs ? n.outputs.length : 0;
+                    const contentH = CONFIG.dims.headerH + (outputsCount * CONFIG.dims.rowH) + CONFIG.dims.footerH + 10;
+                    const bottom = n.y + (Math.max(n.h, contentH) / 2);
+                    if (bottom > currentBottomY) currentBottomY = bottom;
+                });
 
-            // 3. Вычисляем точный сдвиг: 
-            // Мы хотим, чтобы верх импортируемого графа встал под низ текущего + 150px
-            const shiftY = (currentBottomY + 150) - importedTopY;
+                let importedTopY = Infinity;
+                newLogic.nodes.forEach(n => {
+                    const outputsCount = n.outputs ? n.outputs.length : 0;
+                    const contentH = CONFIG.dims.headerH + (outputsCount * CONFIG.dims.rowH) + CONFIG.dims.footerH + 10;
+                    const top = n.y - (Math.max(n.h, contentH) / 2);
+                    if (top < importedTopY) importedTopY = top;
+                });
 
-            // 4. Применяем сдвиг и уникальные ID
-            const sidMap = new Map();
-            const timestamp = Date.now();
+                const shiftY = (currentBottomY + 150) - importedTopY;
+                const sidMap = new Map();
+                const timestamp = Date.now();
 
-            newLogic.nodes.forEach(node => {
-                const oldSid = node.sid;
-                const newSid = timestamp + Math.floor(Math.random() * 1000000);
-                sidMap.set(oldSid, newSid);
-                
-                node.sid = newSid;
-                node.y += shiftY; // Сдвигаем на вычисленную разницу
-                node.s = false;    
-            });
+                newLogic.nodes.forEach(node => {
+                    const oldSid = node.sid;
+                    const newSid = timestamp + Math.floor(Math.random() * 1000000);
+                    sidMap.set(oldSid, newSid);
+                    node.sid = newSid;
+                    node.y += shiftY;
+                    node.s = false;    
+                });
 
-            // Исправляем связи внутри импортированного блока
-            newLogic.nodes.forEach(node => {
-                if (node.outputs) {
-                    node.outputs.forEach(out => {
-                        if (out.cnSID && sidMap.has(out.cnSID)) {
-                            out.cnSID = sidMap.get(out.cnSID);
-                        } else {
-                            out.cnSID = null; 
-                        }
-                    });
-                }
-                node.pnSIDs = []; node.poSIDs = []; node.nodeSIDs = [];
-            });
+                newLogic.nodes.forEach(node => {
+                    if (node.outputs) {
+                        node.outputs.forEach(out => {
+                            if (out.cnSID && sidMap.has(out.cnSID)) {
+                                out.cnSID = sidMap.get(out.cnSID);
+                            } else if (out.cnSID) {
+                                out.cnSID = null; 
+                            }
+                        });
+                    }
+                });
 
-            // 5. Слияние
-            this.data.flowchart.nodes.push(...newLogic.nodes);
-            this.data.ui.nodes.push(...newUI.nodes);
+                this.data.flowchart.nodes.push(...newLogic.nodes);
+                this.data.ui.nodes.push(...newUI.nodes);
+            }
+
+            if (filename && !isImport) {
+                this.data.flowchart.name = filename.replace(/\.(json|flowproj|uistate|miniflow)*$/gi, '');
+            }
+
+            document.getElementById('filename-display').textContent = this.data.flowchart.name;
+            this.rebuildConnectivity();
+            this.render();
+            this.resetView();
+        } finally {
+            this.history.isRestoring = false;
+            // Фиксируем историю ПОСЛЕ загрузки
+            const actionName = isImport ? "Import Project" : "Open File";
+            this.history.execute(actionName);
         }
-
-        if (filename && !isImport) {
-            this.data.flowchart.name = filename.replace(/\.(json|flowproj|uistate|miniflow)*$/gi, '');
-        }
-
-        document.getElementById('filename-display').textContent = this.data.flowchart.name;
-        this.rebuildConnectivity();
-        this.render();
-        this.resetView(); 
     }
 
     exportMiniFlow() {
@@ -1347,7 +1508,8 @@ export class FlowchartEditor {
         }));
 
         this._miniFlowAutoLayout(c3Data.nodes, sidMap.get(miniJson.root));
-        this.load(c3Data, uiData);
+        // передаем флаг true в метод load
+        this.load(c3Data, uiData, "Imported_MiniFlow", true); 
         document.getElementById('status-bar').textContent = `Imported ${c3Data.nodes.length} nodes from MiniFlow`;
     }
 

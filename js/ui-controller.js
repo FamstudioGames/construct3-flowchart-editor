@@ -127,27 +127,26 @@ document.addEventListener('keydown', e => {
         }
     }
 
-    // 7. Undo / Redo
-    if (isCtrl && e.code === 'KeyZ') {
+    // 7. UNDO (Ctrl+Z или Cmd+Z)
+    if (isCtrl && e.code === 'KeyZ' && !isShift) {
         e.preventDefault();
-        if (isShift) app.history.redo();
-        else app.history.undo();
+        app.history.undo();
+        return; // Важно, чтобы не сработал Redo ниже
     }
     
-    // 8.Redo Ctrl+Y
-    if (isCtrl && e.code === 'KeyY') {
+    // 8. REDO (Ctrl+Shift+Z или Cmd+Shift+Z или Ctrl+Y)
+    if (isCtrl && ((e.code === 'KeyZ' && isShift) || e.code === 'KeyY')) {
         e.preventDefault();
         app.history.redo();
+        return;
     }
 
-    // 9. EXPORT (Ctrl + E / Ctrl + Shift + E) ---
+    // 9. EXPORT
     if (isCtrl && e.code === 'KeyE') {
         e.preventDefault();
         if (isShift) {
-            // Ctrl + Shift + E -> MiniFlow
             if (app.data.flowchart) app.exportMiniFlow();
         } else {
-            // Ctrl + E -> C3 JSONs
             app.exportC3();
         }
     }
@@ -298,6 +297,17 @@ document.getElementById('btn-cancel-edit').onclick = () => {
     app.setMode('view');
 };
 
+// --- EDIT MENU ACTIONS (Undo / Redo) ---
+const btnUndo = document.getElementById('btn-undo');
+if (btnUndo) {
+    btnUndo.onclick = () => app.history.undo();
+}
+
+const btnRedo = document.getElementById('btn-redo');
+if (btnRedo) {
+    btnRedo.onclick = () => app.history.redo();
+}
+
 document.getElementById('btn-reset-view').onclick = () => app.resetView();
 
 // Help Modal Dispatcher
@@ -340,6 +350,17 @@ document.getElementById('tool-start').onclick = () => {
         app.render(); 
     }
 };
+
+// Инициализируем состояние кнопок истории
+app.history.updateUI();
+
+// Исправление для того, чтобы подменю истории не закрывалось при клике на него
+const historySubmenu = document.getElementById('history-submenu');
+if (historySubmenu) {
+    historySubmenu.addEventListener('click', (e) => {
+        e.stopPropagation(); // Предотвращаем закрытие основного меню при выборе шага истории
+    });
+}
 
 // Экспортируем app для доступа из консоли или других скриптов (опционально)
 window.editorApp = app;

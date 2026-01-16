@@ -49,7 +49,12 @@
                 <div class="separator"></div>
                 <div id="btn-undo" class="dropdown-item disabled">Undo <span class="shortcut">Ctrl+Z</span></div>
                 <div id="btn-redo" class="dropdown-item disabled">Redo <span class="shortcut">Ctrl+Shift+Z</span></div>
-                <div id="btn-history" class="dropdown-item">Undo History...</div>
+                <div class="dropdown-item has-submenu" id="history-menu-trigger">
+                    Undo History <span class="arrow">▶</span>
+                    <div id="history-submenu" class="submenu">
+                        <div class="history-step empty-history">No history</div>
+                    </div>
+                </div>
             </div>
         </div>
         <div class="menu-item" data-menu="view">View

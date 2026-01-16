@@ -141,6 +141,72 @@ body {
     display: block;
 }
 
+/* --- UNDO HISTORY SPECIFIC --- */
+
+#history-submenu {
+    display: none;
+    position: absolute;
+    left: 100%;
+    top: -5px;
+    background: #2d2d2d;
+    border: 1px solid #454545;
+    min-width: 260px;
+    box-shadow: 5px 5px 15px rgba(0,0,0,0.5);
+    z-index: 1005;
+
+    /* ДОБАВИТЬ ЭТИ ТРИ СТРОКИ ДЛЯ СКРОЛЛА: */
+    max-height: 350px; 
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+/* Остальные твои стили без изменений: */
+.dropdown-item.has-submenu:hover {
+    background: var(--accent) !important;
+    color: white;
+}
+.dropdown-item.has-submenu {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.dropdown-item.has-submenu:hover > .submenu {
+    display: block;
+}
+.history-step {
+    padding: 8px 12px;
+    font-size: 12px;
+    color: var(--text-main);
+    cursor: pointer;
+    border-bottom: 1px solid #3a3a3a;
+    display: flex;
+    justify-content: space-between;
+}
+.history-step:hover {
+    background: var(--accent-hover);
+}
+.history-step .history-time {
+    color: var(--text-dim);
+    font-size: 10px;
+    margin-left: 10px;
+}
+.history-step.active {
+    background: var(--accent);
+    border-left: 3px solid var(--success);
+    color: white;
+}
+.history-step.active .history-time {
+    color: rgba(255,255,255,0.7);
+}
+.dropdown-item.has-submenu:hover > .submenu {
+    display: block !important;
+}
+
+/* ОПЦИОНАЛЬНО: Сделай скроллбар красивым */
+#history-submenu::-webkit-scrollbar { width: 6px; }
+#history-submenu::-webkit-scrollbar-track { background: #1e1e1e; }
+#history-submenu::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+
 /* --- TOOLBAR --- */
 #toolbar {
     display: none;
