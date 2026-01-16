@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Construct 3 Flowchart Editor</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <!-- MENUS -->
+    <div id="menu-bar">
+        <div class="menu-item" data-menu="file">File
+            <div class="dropdown" id="fileDropdown">
+                <div id="btn-new" class="dropdown-item">New</div>
+                <div id="btn-open" class="dropdown-item">Open...</div>
+                
+                <div class="separator"></div>
+                
+                <div id="btn-save-stub" class="dropdown-item">Save <span class="shortcut">Ctrl+S</span></div>
+                <div id="btn-save-as-stub" class="dropdown-item">Save As... <span class="shortcut">Shift+Ctrl+S</span></div>
+
+                <div class="separator"></div>
+
+                <div class="dropdown-item">
+                    Import
+                    <span class="arrow">▶</span>
+                    <div class="submenu">
+                        <div id="btn-import-c3" class="dropdown-item">Import (*.json & *.uistate.json)</div>
+                        <div id="btn-import-mini" class="dropdown-item">Import MiniFlow (*.miniflow.json)</div>
+                    </div>
+                </div>
+
+                <div class="dropdown-item">
+                    Export
+                    <span class="arrow">▶</span>
+                    <div class="submenu">
+                        <div id="btn-export-c3" class="dropdown-item">Export (*.json & *.uistate.json)</div>
+                        <div id="btn-export-mini" class="dropdown-item">Export MiniFlow (*.miniflow.json)</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="menu-item" id="menu-edit-wrapper" style="opacity: 0.5; pointer-events: none;">Edit
+            <div class="dropdown" id="editDropdown">
+                <div id="btn-toggle-mode" class="dropdown-item">Enter Edit Mode</div>
+                <div id="btn-cancel-edit" class="dropdown-item" style="color: var(--danger); display: none;">Cancel Editing</div>
+            </div>
+        </div>
+        <div class="menu-item" data-menu="view">View
+            <div class="dropdown" id="viewDropdown">
+                <div id="btn-reset-view" class="dropdown-item">Reset View</div>
+            </div>
+        </div>
+        <div class="menu-item" data-menu="help">Help
+            <div class="dropdown" id="helpDropdown">
+                <div class="dropdown-item" data-help="getting-started">Getting Started</div>
+                <div class="dropdown-item" data-help="controls">Controls & Shortcuts</div>
+                <div class="separator"></div>
+                <div class="dropdown-item" data-help="import-export">Import / Export</div>
+                <div class="dropdown-item" data-help="formats">Formats (MiniFlow & C3)</div>
+                <div class="separator"></div>
+                <div class="dropdown-item" data-help="about">About / Feedback</div>
+            </div>
+        </div>
+        <div id="status-bar" style="margin-left: 20px; font-size: 11px; color: #aaa;">No flowchart loaded</div>
+        <div id="filename-display" style="margin-left: auto; padding-right: 15px; color: var(--accent); font-size: 11px; font-weight: bold;"></div>
+    </div>
+
+    <!-- TOOLBAR -->
+    <div id="toolbar">
+        <div class="toolbar-group">
+            <button class="btn small" id="tool-add-node">Add Node</button>
+            <button class="btn small" id="tool-del-node" disabled>Delete Node</button>
+        </div>
+        <div class="toolbar-group">
+            <button class="btn small" id="tool-add-out" disabled>Add Output</button>
+            <button class="btn small" id="tool-del-out" disabled>Delete Output</button>
+        </div>
+        <div class="toolbar-group">
+            <button class="btn small" id="tool-enable" disabled>Enable/Disable</button>
+            <button class="btn small" id="tool-start" disabled>Set Start</button>
+        </div>
+    </div>
+
+    <!-- WORKSPACE -->
+    <div id="workspace">
+        <div id="canvas-container">
+            <canvas id="canvas"></canvas>
+            <div id="mode-indicator" class="view-mode">VIEW MODE</div>
+            <div class="zoom-info">
+                <div>Zoom: <span id="zoom-level">100%</span></div>
+                <div id="edit-hint" style="display:none; color: var(--warn); margin-top:4px;">Right-click for options</div>
+            </div>
+        </div>
+        <div id="properties-panel">
+            <div class="prop-group"><h3>No Selection</h3></div>
+        </div>
+    </div>
+
+    <!-- HIDDEN & OVERLAYS -->
+    <input type="file" id="file-input" accept=".json" multiple style="display: none;">
+    <input type="file" id="file-input-mini" accept=".json" style="display: none;">
+    <div id="context-menu"></div>
+    
+    <!-- HELP MODAL -->
+    <div id="help-modal" class="modal-overlay">
+        <div class="modal-box">
+            <button class="modal-close" id="modal-close-btn">×</button>
+            <div id="help-content" class="modal-content"></div>
+        </div>
+    </div>
+
+    <!-- SCRIPTS -->
+    <script src="js/help-content.js"></script>
+    <script type="module" src="js/ui-controller.js"></script>
+</body>
+</html>
