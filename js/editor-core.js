@@ -321,17 +321,20 @@ export class FlowchartEditor {
     applyMarqueeSelection(isShift) {
         if (!this.state.marqueeStart || !this.state.marqueeCurrent) return;
 
+        // 1. Нормализуем координаты рамки (экранные)
         const x1 = Math.min(this.state.marqueeStart.x, this.state.marqueeCurrent.x);
         const y1 = Math.min(this.state.marqueeStart.y, this.state.marqueeCurrent.y);
         const x2 = Math.max(this.state.marqueeStart.x, this.state.marqueeCurrent.x);
         const y2 = Math.max(this.state.marqueeStart.y, this.state.marqueeCurrent.y);
         const marqueeRect = { left: x1, top: y1, right: x2, bottom: y2 };
 
+        // Игнорируем микро-сдвиги
         if (Math.abs(x2 - x1) < 5 && Math.abs(y2 - y1) < 5) return;
 
         const candidateNodes = [];
         const candidateConns = [];
 
+        // 2. Поиск НОД в рамке
         this.data.flowchart.nodes.forEach(node => {
             const outputsCount = node.outputs ? node.outputs.length : 0;
             const contentH = CONFIG.dims.headerH + (outputsCount * CONFIG.dims.rowH) + CONFIG.dims.footerH + 10;
@@ -341,11 +344,13 @@ export class FlowchartEditor {
             const br = Utils.worldToScreen(node.x + node.w/2, node.y + actualH/2, this.view.panX, this.view.panY, this.view.zoom);
             
             const nodeRect = { left: tl.x, top: tl.y, right: br.x, bottom: br.y };
+
             if (Utils.isRectOverlap(marqueeRect, nodeRect)) {
                 candidateNodes.push(node);
             }
         });
 
+        // 3. Поиск СВЯЗЕЙ в рамке (используем семплирование точек кривой Безье)
         this.data.flowchart.nodes.forEach(node => {
             if (!node.outputs) return;
             node.outputs.forEach((out, idx) => {
@@ -354,17 +359,34 @@ export class FlowchartEditor {
                     if (target) {
                         const pStart = this.getOutputPos(node, idx);
                         const pEnd = this.getNodeInputPos(target);
+
+                        // Параметры кривой (соответствуют методу отрисовки drawConnection)
                         const cpDist = Math.abs(pEnd.x - pStart.x) * 0.5;
-                        const cp1 = { x: pStart.x + cpDist, y: pStart.y };
-                        const cp2 = { x: pEnd.x - cpDist, y: pEnd.y };
+                        const p0 = pStart;
+                        const p1 = { x: pStart.x + cpDist, y: pStart.y };
+                        const p2 = { x: pEnd.x - cpDist, y: pEnd.y };
+                        const p3 = pEnd;
 
-                        const minX = Math.min(pStart.x, pEnd.x, cp1.x, cp2.x);
-                        const maxX = Math.max(pStart.x, pEnd.x, cp1.x, cp2.x);
-                        const minY = Math.min(pStart.y, pEnd.y, cp1.y, cp2.y);
-                        const maxY = Math.max(pStart.y, pEnd.y, cp1.y, cp2.y);
-                        const connRect = { left: minX - 5, top: minY - 5, right: maxX + 5, bottom: maxY + 5 };
+                        // Семплируем кривую (20 шагов достаточно для точного определения попадания в рамку)
+                        let intersects = false;
+                        const steps = 20;
+                        for (let i = 0; i <= steps; i++) {
+                            const t = i / steps;
+                            const it = 1 - t;
+                            
+                            // Формула кубической кривой Безье
+                            const x = it*it*it*p0.x + 3*it*it*t*p1.x + 3*it*t*t*p2.x + t*t*t*p3.x;
+                            const y = it*it*it*p0.y + 3*it*it*t*p1.y + 3*it*t*t*p2.y + t*t*t*p3.y;
 
-                        if (Utils.isRectOverlap(marqueeRect, connRect)) {
+                            // Проверяем, находится ли точка внутри рамки
+                            if (x >= marqueeRect.left && x <= marqueeRect.right && 
+                                y >= marqueeRect.top && y <= marqueeRect.bottom) {
+                                intersects = true;
+                                break;
+                            }
+                        }
+
+                        if (intersects) {
                             candidateConns.push({ output: out, sourceNode: node });
                         }
                     }
@@ -372,6 +394,7 @@ export class FlowchartEditor {
             });
         });
 
+        // 4. Логика разрешения конфликтов (Приоритет: Ноды > Связи)
         if (candidateNodes.length > 0) {
             if (this.state.selectionType === 'connection') {
                 this.state.selection = [];
@@ -380,6 +403,7 @@ export class FlowchartEditor {
                 this.state.selection = [];
             }
             this.state.selectionType = 'node';
+
             candidateNodes.forEach(n => {
                 if (!this.isSelected(n)) this.state.selection.push(n);
             });
@@ -393,6 +417,7 @@ export class FlowchartEditor {
             } else if (this.state.selectionType === 'none') {
                 this.state.selectionType = 'connection';
             }
+
             candidateConns.forEach(cand => {
                 const exists = this.state.selection.some(s => s.output === cand.output);
                 if (!exists) this.state.selection.push(cand);
