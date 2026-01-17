@@ -75,12 +75,50 @@ class CommandManager {
         this.isRestoring = true;
         try {
             const data = JSON.parse(json);
-            // Глубокое копирование, чтобы избежать мутаций в стеке
+            
+            // 1. Запоминаем SID-ы того, что БЫЛО выделено
+            const selectedSids = this.editor.state.selection
+                .map(n => n.sid || (n.output ? n.output.sid : null))
+                .filter(sid => sid !== null);
+            
+            const prevType = this.editor.state.selectionType;
+
+            // 2. Обновляем данные (глубокое копирование)
             this.editor.data.flowchart = JSON.parse(JSON.stringify(data.flowchart));
             this.editor.data.ui = JSON.parse(JSON.stringify(data.ui));
+            
             this.editor.rebuildConnectivity();
+
+            // 3. СИНХРОНИЗАЦИЯ ВЫДЕЛЕНИЯ: ищем те же объекты в новых данных
+            if (prevType === 'node' && this.editor.data.flowchart.nodes) {
+                this.editor.state.selection = this.editor.data.flowchart.nodes.filter(n => 
+                    selectedSids.includes(n.sid)
+                );
+            } else if (prevType === 'connection') {
+                // Для связей: собираем массив объектов {output, sourceNode} из новых данных
+                const newSelection = [];
+                this.editor.data.flowchart.nodes.forEach(n => {
+                    n.outputs?.forEach(out => {
+                        if (selectedSids.includes(out.sid)) {
+                            newSelection.push({ output: out, sourceNode: n });
+                        }
+                    });
+                });
+                this.editor.state.selection = newSelection;
+            }
+
+            // 4. Если после восстановления ничего не нашлось — сбрасываем тип
+            if (this.editor.state.selection.length === 0) {
+                this.editor.state.selectionType = 'none';
+            }
+
             this.editor.render();
-            this.editor.updateUI();
+            
+            // 5. КРИТИЧНО: Обновляем интерфейс, чтобы кнопки заблокировались, если выделение пустое
+            this.editor.updateUI(); 
+
+        } catch (e) {
+            console.error("Restore failed:", e);
         } finally {
             this.isRestoring = false;
         }
@@ -749,24 +787,36 @@ export class FlowchartEditor {
     }
 
     deleteSelection() {
-        if (this.state.selection.length === 0) return;
-        const name = this.state.selectionType === 'node' ? `Delete ${this.state.selection.length} node(s)` : "Delete connection(s)";
+        // ЗАЩИТА: Если ничего не выделено, просто выходим, не фиксируя шаг в истории
+        if (!this.state.selection || this.state.selection.length === 0) return;
+    
+        const name = this.state.selectionType === 'node' 
+            ? `Delete ${this.state.selection.length} node(s)` 
+            : "Delete connection(s)";
+            
         if (this.state.selectionType === 'node') {
             this.state.selection.forEach(node => {
                 const idx = this.data.flowchart.nodes.indexOf(node);
                 if (idx > -1) {
                     this.data.flowchart.nodes.forEach(n => {
                         n.outputs?.forEach(o => { if (o.cnSID === node.sid) o.cnSID = null; });
-                        n.pnSIDs = n.pnSIDs.filter(s => s !== node.sid);
+                        n.pnSIDs = (n.pnSIDs || []).filter(s => s !== node.sid);
                     });
-                    this.data.flowchart.nodes.splice(idx, 1); this.data.ui.nodes.splice(idx, 1);
+                    this.data.flowchart.nodes.splice(idx, 1); 
+                    this.data.ui.nodes.splice(idx, 1);
                 }
             });
-        } else {
-            this.state.selection.forEach(s => s.output.cnSID = null);
+        } else if (this.state.selectionType === 'connection') {
+            this.state.selection.forEach(s => {
+                if (s.output) s.output.cnSID = null;
+            });
         }
-        this.history.execute(name); // Фиксируем ПОСЛЕ
-        this.selectSingle(null); this.state.selectionType = 'none'; this.render();
+
+        // Фиксируем историю только ПОСЛЕ того, как убедились, что изменения произошли
+        this.history.execute(name); 
+        this.selectSingle(null); 
+        this.state.selectionType = 'none'; 
+        this.render();
     }
 
     _deleteNodeInternal(node) {
@@ -823,26 +873,26 @@ export class FlowchartEditor {
     }
 
     pasteNode(screenX, screenY) {
-        if (!this.clipboard || !this.clipboard.items) return;
+        // ЗАЩИТА: Если буфер пуст, не создаем "пустой" шаг в истории
+        if (!this.clipboard || !this.clipboard.items || this.clipboard.items.length === 0) return;
 
         const wp = Utils.screenToWorld(screenX, screenY, this.view.panX, this.view.panY, this.view.zoom);
         this.selectSingle(null);
+        this.state.selectionType = 'node';
 
         this.clipboard.items.forEach(item => {
             const newNode = JSON.parse(JSON.stringify(item.logic));
-            newNode.sid = Utils.uuid();
-            newNode.x = wp.x + (item.logic.x - this.clipboard.center.x);
-            newNode.y = wp.y + (item.logic.y - this.clipboard.center.y);
-            newNode.pnSIDs = []; newNode.poSIDs = []; newNode.nodeSIDs = [];
-            if (newNode.outputs) {
-                newNode.outputs.forEach(out => { out.sid = Utils.uuid(); out.cnSID = null; });
-            }
-            const newUiNode = JSON.parse(JSON.stringify(item.ui));
-            this.data.flowchart.nodes.push(newNode);
-            this.data.ui.nodes.push(newUiNode);
+            newNode.sid = Utils.uuid(); 
+            newNode.x = wp.x + (item.logic.x - this.clipboard.offset.x); 
+            newNode.y = wp.y + (item.logic.y - this.clipboard.offset.y);
+            newNode.outputs?.forEach(o => { o.sid = Utils.uuid(); o.cnSID = null; });
+            
+            this.data.flowchart.nodes.push(newNode); 
+            this.data.ui.nodes.push(JSON.parse(JSON.stringify(item.ui)));
             this.addToSelection(newNode);
         });
-        this.history.execute(`Paste ${this.clipboard.items.length} node(s)`); // запомнили действие
+
+        this.history.execute(`Paste ${this.clipboard.items.length} node(s)`); 
         this.render();
     }
 

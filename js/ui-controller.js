@@ -326,20 +326,46 @@ document.getElementById('help-modal').onclick = (e) => {
 
 // --- TOOLBAR ACTIONS ---
 document.getElementById('tool-add-node').onclick = () => app.addNode(app.canvas.width/2, app.canvas.height/2);
-document.getElementById('tool-del-node').onclick = () => app.deleteSelection();
+
+// Кнопка Delete node на тулбаре
+document.getElementById('tool-del-node').onclick = () => {
+    // Проверка на вшивость: есть ли в выделении хоть один живой объект
+    const hasLiveObjects = app.state.selection.some(obj => {
+        if (app.state.selectionType === 'node') return app.data.flowchart.nodes.includes(obj);
+        if (app.state.selectionType === 'connection') return app.data.flowchart.nodes.includes(obj.sourceNode);
+        return false;
+    });
+
+    if (hasLiveObjects) {
+        app.deleteSelection();
+    } else {
+        app.selectSingle(null);
+    }
+};
+
+// Кнопка Add Output на тулбаре
 document.getElementById('tool-add-out').onclick = () => {
-    const btn = document.getElementById('prop-add-out');
-    if (btn) btn.click();
+    if (app.state.selectionType === 'node' && app.state.selection.length === 1) {
+        const btn = document.getElementById('prop-add-out');
+        if (btn) btn.click();
+    }
 };
 
 // Кнопка Enable/Disable на тулбаре
 document.getElementById('tool-enable').onclick = () => { 
     if (app.state.selectionType === 'node' && app.state.selection.length > 0) { 
-        const count = app.state.selection.length;
-        // Берем инвертированное состояние первой ноды как целевое для всей группы
-        const newState = !app.state.selection[0].e; 
+        // ЗАЩИТА: Проверяем, что выделенные объекты реально существуют в текущем проекте
+        const validNodes = app.state.selection.filter(n => app.data.flowchart.nodes.includes(n));
         
-        app.state.selection.forEach(node => {
+        if (validNodes.length === 0) {
+            app.selectSingle(null); // Принудительная очистка "призраков"
+            return;
+        }
+
+        const count = validNodes.length;
+        const newState = !validNodes[0].e; 
+        
+        validNodes.forEach(node => {
             node.e = newState;
         });
         
@@ -347,9 +373,7 @@ document.getElementById('tool-enable').onclick = () => {
         const historyName = count > 1 ? `${actionLabel} (${count} nodes)` : actionLabel;
 
         app.history.execute(`Toggle node option: ${historyName}`);
-        
-        // Обновляем панель свойств, если выделена одна нода
-        if (count === 1) app.generateProperties(app.state.selection[0]); 
+        if (count === 1) app.generateProperties(validNodes[0]); 
         app.render(); 
     }
 };
@@ -361,9 +385,7 @@ document.getElementById('tool-start').onclick = () => {
         app.data.flowchart.nodes.forEach(n => n.s = false); 
         node.s = true; 
         
-        // Фиксируем в истории
         app.history.execute("Toggle node option: Set start");
-        
         app.generateProperties(node); 
         app.render(); 
     }
