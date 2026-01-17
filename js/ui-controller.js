@@ -349,18 +349,7 @@ if (btnRedo) {
 document.getElementById('btn-reset-view').onclick = () => app.resetView();
 
 // Help Modal Dispatcher
-document.querySelectorAll('[data-help]').forEach(item => {
-    item.onclick = () => app.openHelp(item.getAttribute('data-help'));
-});
 
-const closeBtn = document.getElementById('modal-close-btn');
-if (closeBtn) {
-    closeBtn.onclick = () => document.getElementById('help-modal').classList.remove('active');
-}
-
-document.getElementById('help-modal').onclick = (e) => {
-    if (e.target.id === 'help-modal') e.target.classList.remove('active');
-};
 
 // --- TOOLBAR ACTIONS ---
 // Создаем ноду через тулбар

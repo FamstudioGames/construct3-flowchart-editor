@@ -127,8 +127,20 @@ class CommandManager {
     updateUI() {
         const btnUndo = document.getElementById('btn-undo');
         const btnRedo = document.getElementById('btn-redo');
+        const status = document.getElementById('status-bar'); // Находим статус-бар
+
         if (btnUndo) btnUndo.classList.toggle('disabled', this.index <= 0);
         if (btnRedo) btnRedo.classList.toggle('disabled', this.index >= this.undoStack.length - 1);
+
+        // ОБНОВЛЕНИЕ ТЕКСТА
+        if (status) {
+            if (this.index >= 0 && this.undoStack[this.index]) {
+                // Показываем название текущего шага истории
+                status.textContent = `Last action: ${this.undoStack[this.index].name}`;
+            } else {
+                status.textContent = "Ready";
+            }
+        }
     }
 
     updateHistoryMenu() {
@@ -196,6 +208,7 @@ export class FlowchartEditor {
         this.fileHandle = null; 
 
         setTimeout(() => this.history.saveInitialState(), 0);
+        this.render();
     }
 
     resize() {
@@ -1667,13 +1680,18 @@ export class FlowchartEditor {
             this.resetView();
         } finally {
             this.history.isRestoring = false;
-            // Фиксируем историю ПОСЛЕ загрузки
             const actionName = isImport ? "Import Project" : "Open File";
             this.history.execute(actionName);
+            
+            // Закрываем меню
+            document.querySelectorAll('.dropdown, .submenu').forEach(d => d.style.display = 'none');
+            
+            // Дополнительный фидбек в статус-бар (опционально, так как execute уже обновит текст)
+            const status = document.getElementById('status-bar');
+            if (status && !isImport) {
+                status.textContent = `Project "${this.data.flowchart.name || 'Untitled'}" loaded successfully.`;
+            }
         }
-
-        // закрываем все открытые меню
-        document.querySelectorAll('.dropdown, .submenu').forEach(d => d.style.display = 'none');
     }
 
     exportMiniFlow() {

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" href="data:,">
-    <title>Construct 3 Flowchart Editor</title>
+    <title>Flowchart Editor</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -116,8 +116,28 @@
     <!-- HELP MODAL -->
     <div id="help-modal" class="modal-overlay">
         <div class="modal-box">
-            <button class="modal-close" id="modal-close-btn">×</button>
-            <div id="help-content" class="modal-content"></div>
+            <div class="modal-header">
+                <h1>Manual</h1>
+                <button class="modal-close" id="modal-close-btn">×</button>
+            </div>
+            <div class="modal-body">
+                <nav class="left-menu">
+                    <div class="menu-section">
+                        <div class="help-menu-item active" data-help="getting-started">Getting Started</div>
+                    </div>
+                    <div class="menu-section">
+                        <div class="help-menu-item" data-help="controls">Controls & Shortcuts</div>
+                    </div>
+                    <div class="menu-section">
+                        <div class="help-menu-item" data-help="import-export">File Formats</div>
+                        <div class="help-menu-item" data-help="formats">Format Specifications</div>
+                    </div>
+                    <div class="menu-section">
+                        <div class="help-menu-item" data-help="about">About / Feedback</div>
+                    </div>
+                </nav>
+                <div id="help-content" class="modal-content"></div>
+            </div>
         </div>
     </div>
 
