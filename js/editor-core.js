@@ -1517,24 +1517,61 @@ export class FlowchartEditor {
     setMode(mode) {
         this.state.mode = mode;
         const ind = document.getElementById('mode-indicator'), tb = document.getElementById('toolbar'), c = this.canvas;
+        
         if (mode === 'edit') {
-            this.data.original = JSON.parse(JSON.stringify(this.data.flowchart));
+            // СОХРАНЯЕМ ПОЛНЫЙ СЛЕПОК (Логика + Расположение нод)
+            this.data.original = JSON.stringify({
+                flowchart: this.data.flowchart,
+                ui: this.data.ui
+            });
+
             ind.textContent = "EDIT MODE"; ind.className = "edit-mode";
             tb.classList.add('active'); c.classList.add('editing');
             document.getElementById('properties-panel').classList.add('active');
-            document.getElementById('menu-edit-wrapper').style.opacity = "1"; 
             document.getElementById('btn-toggle-mode').textContent = "Save & Exit";
             document.getElementById('btn-cancel-edit').style.display = "block";
-            document.getElementById('edit-hint').style.display = 'block';
         } else {
+            // ... (логика выхода в view mode без изменений)
             ind.textContent = "VIEW MODE"; ind.className = "view-mode";
             tb.classList.remove('active'); c.classList.remove('editing');
             document.getElementById('properties-panel').classList.remove('active');
             document.getElementById('btn-toggle-mode').textContent = "Enter Edit Mode";
             document.getElementById('btn-cancel-edit').style.display = "none";
-            document.getElementById('edit-hint').style.display = 'none';
-            this.select(null);
+            this.selectSingle(null);
         }
+    }
+
+    cancelEdit() {
+        if (!this.data.original) {
+            this.setMode('view');
+            return;
+        }
+
+        // 1. Восстанавливаем данные из слепка
+        const backup = JSON.parse(this.data.original);
+        this.data.flowchart = backup.flowchart;
+        this.data.ui = backup.ui;
+
+        // 2. СБРОС ИСТОРИИ (Эффективный путь)
+        // Мы удаляем все "грязные" шаги редактирования и создаем один чистый
+        this.history.undoStack = [{ 
+            name: "State Before Edit (Restored)", 
+            snapshot: this.data.original, 
+            timestamp: Date.now() 
+        }];
+        this.history.index = 0;
+        this.history.updateUI();
+        this.history.updateHistoryMenu();
+
+        // 3. Обновляем визуальную часть
+        this.rebuildConnectivity();
+        this.render();
+        this.updateUI(); // Обновит кнопки тулбара
+        
+        // 4. Выходим в режим просмотра
+        this.setMode('view');
+        
+        document.getElementById('status-bar').textContent = "Edit session canceled. Changes reverted.";
     }
 
     rebuildConnectivity() {

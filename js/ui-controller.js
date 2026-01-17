@@ -328,9 +328,11 @@ document.getElementById('btn-toggle-mode').onclick = () => {
     }
 };
 
+// кнопка отменить редактирование
 document.getElementById('btn-cancel-edit').onclick = () => {
-    app.data.flowchart = app.data.original; 
-    app.setMode('view');
+    if (confirm("Cancel all changes made in this session?")) {
+        app.cancelEdit();
+    }
 };
 
 // --- EDIT MENU ACTIONS (Undo / Redo) ---
