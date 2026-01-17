@@ -655,12 +655,13 @@ export class FlowchartEditor {
 
         if (count === 0) {
             panel.innerHTML = '<div class="prop-group"><h3>No Selection</h3></div>';
-            btnDel.innerHTML = 'Delete ...'; // Дефолт
+            btnDel.innerHTML = 'Delete ...';
             btnDel.disabled = true;
             btnAddOut.disabled = true;
             btnEnable.disabled = true;
             btnStart.disabled = true;
             btnDelOut.disabled = true;
+            btnEnable.innerHTML = 'Enable / Disable';
         } 
         else if (this.state.selectionType === 'connection') {
             const title = count === 1 ? 'Connection Selected' : `Selection (${count} connections)`;
@@ -675,16 +676,19 @@ export class FlowchartEditor {
         else if (this.state.selectionType === 'node') {
             btnDel.disabled = false;
             btnDel.innerHTML = count > 1 ? `Delete ${count} Nodes` : 'Delete Node';
+            
+            // Кнопка Enable теперь доступна и для группы
+            btnEnable.disabled = false; 
+            btnEnable.innerHTML = count > 1 ? `Enable / Disable (${count})` : 'Enable / Disable';
+
             if (count === 1) {
                 this.generateProperties(this.state.selection[0]);
                 btnAddOut.disabled = false;
-                btnEnable.disabled = false; 
                 btnStart.disabled = false;
             } else {
                 panel.innerHTML = `<div class="prop-group"><h3>Multiple Selection (${count} items)</h3><p style="color:#aaa">Properties editing is disabled for multiple items.</p></div>`;
                 btnAddOut.disabled = true;
-                btnEnable.disabled = true; 
-                btnStart.disabled = true;
+                btnStart.disabled = true; // "Стартовой" может быть только одна нода, оставляем заблокированным
                 btnDelOut.disabled = true;
             }
         }
@@ -1284,30 +1288,47 @@ export class FlowchartEditor {
             });
         } else if (this.state.hover.node) {
             const n = this.state.hover.node;
-            if (!this.isSelected(n)) this.selectSingle(n);
+            
+            // Если нода не в выделении — выделяем только её. 
+            // Если в выделении — работаем со всей группой.
+            if (!this.isSelected(n)) {
+                this.selectSingle(n);
+            }
+            
             const count = this.state.selection.length;
 
             items.push({ txt: 'Copy', fn: () => this.copyNode() });
             items.push({ 
                 txt: count > 1 ? `Delete ${count} nodes` : 'Delete node', 
-                fn: () => this.deleteSelection() // История фиксируется внутри метода deleteSelection
+                fn: () => this.deleteSelection() 
             });
             items.push({ txt: '----------------', fn: () => {} });
+            
+            // ГРУППОВОЕ ДЕЙСТВИЕ ENABLE / DISABLE
             items.push({ 
-                txt: n.e ? 'Disable Node' : 'Enable Node', 
+                txt: n.e ? (count > 1 ? `Disable ${count} Nodes` : 'Disable Node') : (count > 1 ? `Enable ${count} Nodes` : 'Enable Node'), 
                 fn: () => { 
-                    n.e = !n.e; 
-                    // Фиксируем историю с новым форматом имени
-                    this.history.execute(`Toggle node option: ${n.e ? "Enable" : "Disable"}`); 
+                    const newState = !n.e; // Новое состояние на основе кликнутой ноды
+                    this.state.selection.forEach(node => {
+                        if (this.state.selectionType === 'node') {
+                            node.e = newState;
+                        }
+                    });
+                    
+                    const actionLabel = newState ? "Enable" : "Disable";
+                    const historyName = count > 1 ? `${actionLabel} (${count} nodes)` : actionLabel;
+                    
+                    this.history.execute(`Toggle node option: ${historyName}`); 
                     this.render(); 
+                    if (count === 1) this.generateProperties(n); // Обновляем панель, если одна нода
                 }
             });
+
             items.push({ 
                 txt: 'Set Start Node', 
                 fn: () => { 
                     this.data.flowchart.nodes.forEach(x => x.s = false); 
                     n.s = true; 
-                    // Фиксируем историю с новым форматом имени
                     this.history.execute("Toggle node option: Set start"); 
                     this.render(); 
                 }
@@ -1315,17 +1336,16 @@ export class FlowchartEditor {
         } else {
             items.push({ 
                 txt: 'Add Node', 
-                fn: () => this.addNode(e.clientX, e.clientY) // История фиксируется внутри метода addNode
+                fn: () => this.addNode(e.clientX, e.clientY)
             });
             if (this.clipboard) {
                 items.push({ 
                     txt: 'Paste Node', 
-                    fn: () => this.pasteNode(mx, my) // История фиксируется внутри метода pasteNode
+                    fn: () => this.pasteNode(mx, my)
                 });
             }
         }
 
-        // Рендерим меню
         menu.innerHTML = items.map((i, idx) => 
             i.txt.startsWith('---') 
             ? `<div style="border-top:1px solid #444; margin:4px 0;"></div>` 
@@ -1336,7 +1356,6 @@ export class FlowchartEditor {
         menu.style.top = e.clientY + 'px';
         menu.classList.add('active');
 
-        // Обработка клика
         menu.onclick = (evt) => { 
             const idx = evt.target.dataset.i; 
             if(idx !== undefined) { 

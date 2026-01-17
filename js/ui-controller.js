@@ -334,14 +334,22 @@ document.getElementById('tool-add-out').onclick = () => {
 
 // Кнопка Enable/Disable на тулбаре
 document.getElementById('tool-enable').onclick = () => { 
-    if (app.state.selectionType === 'node' && app.state.selection.length === 1) { 
-        const node = app.state.selection[0];
-        node.e = !node.e; 
+    if (app.state.selectionType === 'node' && app.state.selection.length > 0) { 
+        const count = app.state.selection.length;
+        // Берем инвертированное состояние первой ноды как целевое для всей группы
+        const newState = !app.state.selection[0].e; 
         
-        // Фиксируем в истории
-        app.history.execute(`Toggle node option: ${node.e ? "Enable" : "Disable"}`);
+        app.state.selection.forEach(node => {
+            node.e = newState;
+        });
         
-        app.generateProperties(node); 
+        const actionLabel = newState ? "Enable" : "Disable";
+        const historyName = count > 1 ? `${actionLabel} (${count} nodes)` : actionLabel;
+
+        app.history.execute(`Toggle node option: ${historyName}`);
+        
+        // Обновляем панель свойств, если выделена одна нода
+        if (count === 1) app.generateProperties(app.state.selection[0]); 
         app.render(); 
     }
 };
