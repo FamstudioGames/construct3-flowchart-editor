@@ -186,7 +186,8 @@ export class FlowchartEditor {
             hover: { node: null, output: null, connection: null },
             resizing: false, resizeTarget: null, resizeDir: null,
             marqueeStart: null, marqueeCurrent: null, isSpacePressed: false,
-            hasMovedDuringDrag: false
+            hasMovedDuringDrag: false,
+            toolbarCreateCount: 0 // Счётчик последовательных созданий через тулбар
         };
         
         this.clipboard = null; 
@@ -292,6 +293,7 @@ export class FlowchartEditor {
         else if (type === 'move') {
             // Панорамирование
             if (this.state.dragging) {
+                this.state.toolbarCreateCount = 0;
                 this.view.panX += e.clientX - this.state.lastMouse.x;
                 this.view.panY += e.clientY - this.state.lastMouse.y;
                 this.canvas.style.cursor = 'grabbing';
@@ -752,25 +754,60 @@ export class FlowchartEditor {
         document.getElementById('tool-start').disabled = !node;
     }
 
-    addNode(screenX, screenY) {
+    // метод для генерации уникальных имен аутпутов
+    _getNextOutputData(node) {
+        let i = 0;
+        const outputs = node.outputs || [];
+        // Ищем первый свободный индекс i, чтобы не было дублей имен
+        while (outputs.some(o => o.name === `Option ${i}`)) {
+            i++;
+        }
+        return { name: `Option ${i}`, value: `Value ${i}` };
+    }
+
+    addNode(screenX, screenY, isToolbar = false) {
         const wp = Utils.screenToWorld(screenX, screenY, this.view.panX, this.view.panY, this.view.zoom);
+        
+        // РАСЧЕТ СМЕЩЕНИЯ (CASCADE)
+        let offsetX = 0;
+        let offsetY = 0;
+
+        if (isToolbar) {
+            const count = this.state.toolbarCreateCount;
+            const wrapLimit = 20;   // После 20 нод начинаем новую "лестницу"
+            const step = 30;        // Шаг ступеньки (px)
+            const groupShift = 100; // Смещение новой группы вправо (px)
+
+            // Текущая ступенька внутри группы (0-19)
+            const stepIdx = count % wrapLimit;
+            // Номер группы (0, 1, 2...)
+            const groupIdx = Math.floor(count / wrapLimit);
+
+            offsetX = (stepIdx * step) + (groupIdx * groupShift);
+            offsetY = (stepIdx * step);
+
+            this.state.toolbarCreateCount++;
+        }
+
+        const nextData = this._getNextOutputData({ outputs: [] });
         const defaultOutputsCount = 1;
         const calcH = CONFIG.dims.headerH + (defaultOutputsCount * CONFIG.dims.rowH) + CONFIG.dims.footerH + 10;
 
         const newNode = {
             sid: Utils.uuid(), 
             pnSIDs: [], poSIDs: [], nodeSIDs: [],
-            x: wp.x - 210, 
-            y: wp.y - (calcH / 2), 
+            // Применяем рассчитанное смещение к координатам центра
+            x: wp.x + offsetX, 
+            y: wp.y + offsetY, 
             w: 420, 
             h: calcH,
             t: "", s: false, e: true, c: "New Node",
             pi: 0, ty: "dictionary", pr: false, prfsid: null, prfnsid: null,
             outputs: [{ 
-                sid: Utils.uuid()+1, 
+                sid: Utils.uuid(), 
                 cnSID: null, 
-                name: "Option 1", 
-                value: "", 
+                name: nextData.name, 
+                value: nextData.value, 
                 enable: true, 
                 default: false 
             }]
@@ -781,8 +818,9 @@ export class FlowchartEditor {
             node: { propertiesBar: {}, nodeTable: {}, color: [0.8, 0.8, 0.8, 1] }, 
             outputs: [{ color: [0, 0, 0, 1], linkMode: "line", propertiesBar: {} }] 
         });
-        this.history.execute("Add Node"); // запомнили действие
-        this.select(newNode);
+        
+        this.selectSingle(newNode);
+        this.history.execute("Add Node"); 
         this.render();
     }
 
@@ -1084,11 +1122,11 @@ export class FlowchartEditor {
 
         if (node.outputs) {
             const startY = hh + (5 * zoom); 
-            let activeCounter = 0; // Счетчик для активных выходов
+            let activeCounter = 0; // Начинаем с 0
             
             node.outputs.forEach((out, i) => {
-                // Если активен - инкрементируем индекс, иначе -1
-                const displayIdx = out.enable ? ++activeCounter : -1;
+                // Если активен - берем текущее значение и увеличиваем. Если нет - -1.
+                const displayIdx = out.enable ? (activeCounter++) : -1;
                 this.drawOutput(node, out, i, pos, startY, outputNameColor, displayIdx);
             });
         }
@@ -1334,24 +1372,21 @@ export class FlowchartEditor {
         
         // 5. Добавление выхода
         document.getElementById('prop-add-out').onclick = () => {
-            // Вычисляем номер на основе общего количества выходов у ноды
-            const nextIdx = node.outputs.length;
+            // Используем унифицированную логику имен
+            const nextData = this._getNextOutputData(node);
             
             node.outputs.push({ 
                 sid: Utils.uuid(), 
-                name: `Option ${nextIdx}`, // Авто-имя
-                value: `Value ${nextIdx}`, // Авто-значение
+                name: nextData.name, 
+                value: nextData.value, 
                 enable: true, 
                 default: false 
             });
-            
             node.h += CONFIG.dims.rowH; 
             
             if (this.data.ui.nodes[nodeIdx]) {
                 this.data.ui.nodes[nodeIdx].outputs.push({ 
-                    color: [0,0,0,1], 
-                    linkMode: "line", 
-                    propertiesBar: {} 
+                    color: [0,0,0,1], linkMode: "line", propertiesBar: {} 
                 });
             }
             

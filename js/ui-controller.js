@@ -325,7 +325,11 @@ document.getElementById('help-modal').onclick = (e) => {
 };
 
 // --- TOOLBAR ACTIONS ---
-document.getElementById('tool-add-node').onclick = () => app.addNode(app.canvas.width/2, app.canvas.height/2);
+// Создаем ноду через тулбар
+document.getElementById('tool-add-node').onclick = () => {
+    // Создаем ноду в центре экрана и передаем true для включения каскада
+    app.addNode(app.canvas.width / 2, app.canvas.height / 2, true);
+};
 
 // Кнопка Delete node на тулбаре
 document.getElementById('tool-del-node').onclick = () => {
