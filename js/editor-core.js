@@ -907,7 +907,8 @@ export class FlowchartEditor {
         // Отрисовка существующих связей
         this.data.flowchart.nodes.forEach((node, nIdx) => {
             node.outputs?.forEach((out, oIdx) => {
-                if (out.cnSID && out.enable) {
+                // Убрали "&& out.enable", теперь связь видна всегда, если есть ID цели
+                if (out.cnSID) {
                     const target = this.data.flowchart.nodes.find(n => n.sid === out.cnSID);
                     if (target) this.drawConnection(node, nIdx, out, oIdx, target);
                 }
@@ -1083,7 +1084,13 @@ export class FlowchartEditor {
 
         if (node.outputs) {
             const startY = hh + (5 * zoom); 
-            node.outputs.forEach((out, i) => this.drawOutput(node, out, i, pos, startY, outputNameColor));
+            let activeCounter = 0; // Счетчик для активных выходов
+            
+            node.outputs.forEach((out, i) => {
+                // Если активен - инкрементируем индекс, иначе -1
+                const displayIdx = out.enable ? ++activeCounter : -1;
+                this.drawOutput(node, out, i, pos, startY, outputNameColor, displayIdx);
+            });
         }
         if (node.t) {
             this.ctx.textAlign = 'left';
@@ -1102,41 +1109,75 @@ export class FlowchartEditor {
         this.ctx.restore();
     }
 
-    drawOutput(node, out, idx, pos, startY, nameColor) {
+    drawOutput(node, out, idx, pos, startY, nameColor, displayIdx) {
         const rh = CONFIG.dims.rowH * this.view.zoom;
         const yOff = startY + (idx * rh);
         const textY = pos.y + yOff + rh/2;
-        
-        // Объявляем размер шрифта в начале, чтобы он был доступен для всех блоков ниже
         const fontBaseSize = Math.max(9, 12 * this.view.zoom);
+        const zoom = this.view.zoom;
 
-        // 1. Рисуем индекс выхода (#1, #2...) серого цвета слева
         this.ctx.save();
+
+        // 1. Состояние Disabled: делаем весь аутпут тусклым
+        if (!out.enable) {
+            this.ctx.globalAlpha = 0.4;
+        }
+
+        // 2. Рисуем индекс выхода (#1, #2 или #-1) слева
         this.ctx.textAlign = 'left';
         this.ctx.font = `${fontBaseSize}px monospace`;
         this.ctx.fillStyle = '#666';
-        this.ctx.fillText(`#${idx}`, pos.x + 10 * this.view.zoom, textY);
-        this.ctx.restore();
+        // Используем переданный displayIdx
+        this.ctx.fillText(`#${displayIdx}`, pos.x + 10 * zoom, textY);
 
-        // 2. Подготовка к отрисовке имени и значения справа
+        // 3. Подготовка к отрисовке контента справа налево
         this.ctx.textAlign = 'right';
-        let currentX = pos.x + (node.w * this.view.zoom) - (15 * this.view.zoom);
+        let currentX = pos.x + (node.w * zoom) - (15 * zoom);
+        
+        // Определяем границу, дальше которой текст не должен заходить (чтобы не наехать на индекс)
+        const leftBoundary = pos.x + 45 * zoom;
 
         // Отрисовка текста (Default)
         if (out.default) {
-            this.ctx.font = `bold ${Math.max(8, 10 * this.view.zoom)}px sans-serif`;
+            this.ctx.font = `bold ${Math.max(8, 10 * zoom)}px sans-serif`;
             this.ctx.fillStyle = '#4caf50';
             const defText = ' (Default)';
             this.ctx.fillText(defText, currentX, textY);
             currentX -= this.ctx.measureText(defText).width;
         }
 
-        // Отрисовка текста Value
+        // Отрисовка текста Value с автоматической обрезкой
         if (out.value) {
             this.ctx.font = `${fontBaseSize}px sans-serif`;
             this.ctx.fillStyle = '#ccc';
-            const valText = `: ${out.value}`;
+            
+            // Заменяем переносы на пробелы для корректного замера ширины
+            let valText = `: ${out.value.replace(/\\n/g, ' ')}`;
+            const nameWidth = this.ctx.measureText(out.name).width;
+            
+            // Вычисляем доступное место для значения
+            const availWidth = currentX - leftBoundary - nameWidth - (10 * zoom);
+
+            // Алгоритм обрезки (Truncation)
+            if (this.ctx.measureText(valText).width > availWidth) {
+                while (valText.length > 0 && this.ctx.measureText(valText + "...").width > availWidth) {
+                    valText = valText.slice(0, -1);
+                }
+                valText += "...";
+            }
+
             this.ctx.fillText(valText, currentX, textY);
+
+            // Зачеркивание значения, если Disabled
+            if (!out.enable) {
+                const tw = this.ctx.measureText(valText).width;
+                this.ctx.beginPath();
+                this.ctx.strokeStyle = '#ccc';
+                this.ctx.lineWidth = 1;
+                this.ctx.moveTo(currentX - tw, textY);
+                this.ctx.lineTo(currentX, textY);
+                this.ctx.stroke();
+            }
             currentX -= this.ctx.measureText(valText).width;
         }
 
@@ -1145,11 +1186,22 @@ export class FlowchartEditor {
         this.ctx.fillStyle = nameColor; 
         this.ctx.fillText(out.name, currentX, textY);
 
-        // 3. Рисуем точку (dot) выхода
-        const cx = pos.x + node.w * this.view.zoom;
+        // Зачеркивание имени, если Disabled
+        if (!out.enable) {
+            const nw = this.ctx.measureText(out.name).width;
+            this.ctx.beginPath();
+            this.ctx.strokeStyle = nameColor;
+            this.ctx.lineWidth = 1;
+            this.ctx.moveTo(currentX - nw, textY);
+            this.ctx.lineTo(currentX, textY);
+            this.ctx.stroke();
+        }
+
+        // 4. Рисуем точку (dot) выхода
+        const cx = pos.x + node.w * zoom;
         const cy = pos.y + yOff + rh/2;
         this.ctx.beginPath();
-        this.ctx.arc(cx, cy, CONFIG.dims.dotRadius * this.view.zoom, 0, Math.PI*2);
+        this.ctx.arc(cx, cy, CONFIG.dims.dotRadius * zoom, 0, Math.PI*2);
         
         // Подсветка точки
         if (this.state.hover.output?.output === out) {
@@ -1163,7 +1215,7 @@ export class FlowchartEditor {
         this.ctx.lineWidth = 1;
         this.ctx.stroke();
         
-        this.ctx.textAlign = 'left'; // Сброс выравнивания
+        this.ctx.restore();
     }
 
     resetView() {
@@ -1282,24 +1334,29 @@ export class FlowchartEditor {
         
         // 5. Добавление выхода
         document.getElementById('prop-add-out').onclick = () => {
+            // Вычисляем номер на основе общего количества выходов у ноды
             const nextIdx = node.outputs.length;
+            
             node.outputs.push({ 
                 sid: Utils.uuid(), 
-                name: `Option ${nextIdx}`, 
-                value: `Value ${nextIdx}`, 
+                name: `Option ${nextIdx}`, // Авто-имя
+                value: `Value ${nextIdx}`, // Авто-значение
                 enable: true, 
                 default: false 
             });
+            
             node.h += CONFIG.dims.rowH; 
             
             if (this.data.ui.nodes[nodeIdx]) {
                 this.data.ui.nodes[nodeIdx].outputs.push({ 
-                    color: [0,0,0,1], linkMode: "line", propertiesBar: {} 
+                    color: [0,0,0,1], 
+                    linkMode: "line", 
+                    propertiesBar: {} 
                 });
             }
             
             this.generateProperties(node); 
-            this.history.execute("Add output");
+            this.history.execute("Add output"); 
             this.render();
         };
         
