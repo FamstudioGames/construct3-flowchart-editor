@@ -9,7 +9,7 @@ class CommandManager {
         this.isRestoring = false;
     }
 
-    // Инициализация начального состояния (вызывается один раз при старте)
+    // Инициализация начального состояния
     saveInitialState() {
         const snapshot = JSON.stringify({
             flowchart: this.editor.data.flowchart,
@@ -24,12 +24,12 @@ class CommandManager {
     execute(name) {
         if (this.isRestoring) return;
 
-        // Удаляем "будущее", если мы в прошлом
+        // Если мы в прошлом и делаем новое действие — обрезаем "будущее"
         if (this.index < this.undoStack.length - 1) {
             this.undoStack = this.undoStack.slice(0, this.index + 1);
         }
 
-        // Делаем снимок состояния ПОСЛЕ завершения действия
+        // Снимок состояния ПОСЛЕ изменения данных
         const snapshot = JSON.stringify({
             flowchart: this.editor.data.flowchart,
             ui: this.editor.data.ui
@@ -48,7 +48,7 @@ class CommandManager {
     }
 
     undo() {
-        if (this.index <= 0) return; // Нельзя откатиться дальше Initial State
+        if (this.index <= 0) return;
         this.index--;
         this.restore(this.undoStack[this.index].snapshot);
         this.updateUI();
@@ -63,7 +63,6 @@ class CommandManager {
         this.updateHistoryMenu();
     }
 
-    // Восстановление к конкретному шагу из истории
     restoreToStep(index) {
         if (index < 0 || index >= this.undoStack.length) return;
         this.index = index;
@@ -76,6 +75,7 @@ class CommandManager {
         this.isRestoring = true;
         try {
             const data = JSON.parse(json);
+            // Глубокое копирование, чтобы избежать мутаций в стеке
             this.editor.data.flowchart = JSON.parse(JSON.stringify(data.flowchart));
             this.editor.data.ui = JSON.parse(JSON.stringify(data.ui));
             this.editor.rebuildConnectivity();
@@ -116,12 +116,10 @@ class CommandManager {
 
     clear() {
         this.undoStack = [];
-        this.redoStack = [];
-        this.updateUI();
-        this.updateHistoryMenu();
+        this.index = -1;
+        this.saveInitialState();
     }
 
-    // Debounced execute для текстовых полей
     executeDebounced(name, delay = 1000) {
         clearTimeout(this._debounceTimer);
         this._debounceTimer = setTimeout(() => {
@@ -143,37 +141,21 @@ export class FlowchartEditor {
         this.view = { zoom: 1, panX: 0, panY: 0 };
         
         this.state = {
-            mode: 'view',
-            dragging: false,
-            lastMouse: { x: 0, y: 0 },
-            
-            selection: [], 
-            selectionType: 'none', 
-            selectedOutput: null, 
-            
-            dragNode: null, 
-            dragOffset: null, 
-            
+            mode: 'view', dragging: false, lastMouse: { x: 0, y: 0 },
+            selection: [], selectionType: 'none', selectedOutput: null, 
+            dragNode: null, dragOffset: null, 
             connectionStart: null,
             hover: { node: null, output: null, connection: null },
-            
-            resizing: false,
-            resizeTarget: null,
-            resizeDir: null,
-            
-            marqueeStart: null, 
-            marqueeCurrent: null,
-            isSpacePressed: false,
-            hasMovedDuringDrag: false // Флаг для истории
+            resizing: false, resizeTarget: null, resizeDir: null,
+            marqueeStart: null, marqueeCurrent: null, isSpacePressed: false,
+            hasMovedDuringDrag: false
         };
         
         this.clipboard = null; 
         this.resize();
-        
         this.history = new CommandManager(this);
         this.fileHandle = null; 
 
-        // Инициализируем историю начальным состоянием
         setTimeout(() => this.history.saveInitialState(), 0);
     }
 
@@ -192,10 +174,9 @@ export class FlowchartEditor {
 
         // --- 1. MOUSE DOWN ---
         if (type === 'down') {
-            if (this.state.mode === 'edit') {
-                this.state.hasMovedDuringDrag = false;
-            }
+            if (this.state.mode === 'edit') this.state.hasMovedDuringDrag = false;
 
+            // Средняя кнопка или Пробел + ЛКМ = Панорамирование
             if (e.button === 1 || (e.button === 0 && this.state.isSpacePressed)) {
                 this.state.dragging = true;
                 this.state.lastMouse = { x: e.clientX, y: e.clientY };
@@ -203,227 +184,168 @@ export class FlowchartEditor {
                 return; 
             }
 
-            if (e.button === 2) return;
+            if (e.button !== 0 || this.state.mode !== 'edit') return;
 
-            if (e.button === 0) {
-                if (this.state.mode === 'edit') {
-                    let hitNode = this.hitTestNode(mx, my);
-                    let hitOut = null;
-
-                    for (let i = this.data.flowchart.nodes.length - 1; i >= 0; i--) {
-                        const n = this.data.flowchart.nodes[i];
-                        const res = this.hitTestOutput(n, mx, my);
-                        if (res) {
-                            hitOut = res;
-                            hitNode = n;
-                            break;
-                        }
-                    }
-
-                    if (hitNode && hitOut) {
-                        this.state.connectionStart = { node: hitNode, output: hitOut.output };
-                        this.state.lastMouse = { x: e.clientX, y: e.clientY }; 
-                        this.render();
-                        return; 
-                    }
-
-                    const hitConn = this.hitTestConnection(mx, my);
-                    if (hitConn) {
-                        const isShift = e.shiftKey;
-                        if (this.state.selectionType === 'node') {
-                            this.selectSingle(null);
-                        }
-                        this.state.selectionType = 'connection';
-
-                        if (isShift) {
-                            const index = this.state.selection.findIndex(x => x.output === hitConn.output);
-                            if (index >= 0) {
-                                this.state.selection.splice(index, 1);
-                            } else {
-                                this.state.selection.push(hitConn);
-                            }
-                        } else {
-                            const alreadySelected = this.isSelectedConnection(hitConn.output);
-                            if (!alreadySelected) {
-                                this.state.selection = [hitConn];
-                            }
-                        }
-                        this.updateUI(); 
-                        this.render();
-                        return;
-                    }
-
-                    const resizeHit = this.hitTestResize(mx, my);
-                    if (resizeHit) {
-                        if (!this.isSelected(resizeHit.node)) {
-                            this.selectSingle(resizeHit.node);
-                        }
-                        this.state.resizing = true;
-                        this.state.resizeTarget = resizeHit.node;
-                        this.state.resizeDir = resizeHit.dir;
-                        this.state.lastMouse = { x: e.clientX, y: e.clientY };
-                        return; 
-                    }
-
-                    if (hitNode) {
-                        if (this.state.selectionType === 'connection') {
-                            this.state.selection = [];
-                        }
-                        this.state.selectionType = 'node';
-
-                        const isShift = e.shiftKey;
-                        const alreadySelected = this.isSelected(hitNode);
-
-                        if (isShift) {
-                            this.toggleSelection(hitNode);
-                            this.state.dragNode = this.isSelected(hitNode) ? hitNode : null;
-                        } else {
-                            if (!alreadySelected) {
-                                this.selectSingle(hitNode);
-                            }
-                            this.state.dragNode = hitNode;
-                        }
-
-                        const wp = Utils.screenToWorld(mx, my, this.view.panX, this.view.panY, this.view.zoom);
-                        this.state.dragStartWorld = { x: wp.x, y: wp.y }; 
-                    } 
-                    else {
-                        if (!this.state.isSpacePressed) {
-                            if (!e.shiftKey) {
-                                this.selectSingle(null);
-                                this.state.selectionType = 'none';
-                            }
-                            this.state.marqueeStart = { x: mx, y: my };
-                            this.state.marqueeCurrent = { x: mx, y: my };
-                        }
-                    }
-                    this.render();
-                }
+            // Хит-тесты
+            let hitNode = this.hitTestNode(mx, my);
+            let hitOut = null;
+            for (let i = this.data.flowchart.nodes.length - 1; i >= 0; i--) {
+                const res = this.hitTestOutput(this.data.flowchart.nodes[i], mx, my);
+                if (res) { hitOut = res; hitNode = this.data.flowchart.nodes[i]; break; }
             }
+
+            // Нажатие на выход (создание связи)
+            if (hitNode && hitOut) {
+                this.state.connectionStart = { node: hitNode, output: hitOut.output };
+                this.state.lastMouse = { x: e.clientX, y: e.clientY }; 
+                this.render(); return; 
+            }
+
+            // Нажатие на связь
+            const hitConn = this.hitTestConnection(mx, my);
+            if (hitConn) {
+                if (this.state.selectionType === 'node') this.selectSingle(null);
+                this.state.selectionType = 'connection';
+                if (e.shiftKey) {
+                    const idx = this.state.selection.findIndex(x => x.output === hitConn.output);
+                    if (idx >= 0) this.state.selection.splice(idx, 1);
+                    else this.state.selection.push(hitConn);
+                } else {
+                    if (!this.isSelectedConnection(hitConn.output)) this.state.selection = [hitConn];
+                }
+                this.updateUI(); this.render(); return;
+            }
+
+            // Нажатие на зону ресайза
+            const resizeHit = this.hitTestResize(mx, my);
+            if (resizeHit) {
+                if (!this.isSelected(resizeHit.node)) this.selectSingle(resizeHit.node);
+                this.state.resizing = true;
+                this.state.resizeTarget = resizeHit.node;
+                this.state.resizeDir = resizeHit.dir;
+                this.state.lastMouse = { x: e.clientX, y: e.clientY };
+                return; 
+            }
+
+            // Нажатие на ноду (перетаскивание)
+            if (hitNode) {
+                if (this.state.selectionType === 'connection') this.state.selection = [];
+                this.state.selectionType = 'node';
+                if (e.shiftKey) {
+                    this.toggleSelection(hitNode);
+                    this.state.dragNode = this.isSelected(hitNode) ? hitNode : null;
+                } else {
+                    if (!this.isSelected(hitNode)) this.selectSingle(hitNode);
+                    this.state.dragNode = hitNode;
+                }
+                const wp = Utils.screenToWorld(mx, my, this.view.panX, this.view.panY, this.view.zoom);
+                this.state.dragStartWorld = { x: wp.x, y: wp.y }; 
+            } else if (!this.state.isSpacePressed) {
+                // Рамка выделения
+                if (!e.shiftKey) { this.selectSingle(null); this.state.selectionType = 'none'; }
+                this.state.marqueeStart = { x: mx, y: my };
+                this.state.marqueeCurrent = { x: mx, y: my };
+            }
+            this.render();
             this.state.lastMouse = { x: e.clientX, y: e.clientY };
         } 
         
         // --- 2. MOUSE MOVE ---
         else if (type === 'move') {
+            // Панорамирование
             if (this.state.dragging) {
                 this.view.panX += e.clientX - this.state.lastMouse.x;
                 this.view.panY += e.clientY - this.state.lastMouse.y;
                 this.canvas.style.cursor = 'grabbing';
                 this.state.lastMouse = { x: e.clientX, y: e.clientY };
-                this.render();
-                return;
+                this.render(); return;
             }
 
-            if (this.state.mode === 'view') {
-                this.canvas.style.cursor = this.state.isSpacePressed ? 'grab' : 'default';
-            }
-
-            if (this.state.isSpacePressed && !this.state.dragging) {
-                this.canvas.style.cursor = 'grab';
-                this.state.lastMouse = { x: e.clientX, y: e.clientY };
-                return;
-            }
-
+            // Активный ресайз
             if (this.state.resizing && this.state.resizeTarget) {
+                this.state.hasMovedDuringDrag = true;
                 const dx = (e.clientX - this.state.lastMouse.x) / this.view.zoom;
                 const dy = (e.clientY - this.state.lastMouse.y) / this.view.zoom;
-
+                
                 this.state.selection.forEach(node => {
-                    const minSize = this.getMinNodeSize(node);
-                    if (this.state.resizeDir === 'w') {
-                        const oldW = node.w;
-                        const newW = Math.max(minSize.w, oldW + dx);
-                        node.x += (newW - oldW) / 2;
-                        node.w = newW;
-                    } else if (this.state.resizeDir === 'h') {
-                        const oldH = node.h;
-                        const newH = Math.max(minSize.h, oldH + dy);
-                        node.y += (newH - oldH) / 2;
-                        node.h = newH;
+                    const min = this.getMinNodeSize(node);
+                    if (this.state.resizeDir === 'w') { 
+                        const oldW = node.w; 
+                        node.w = Math.max(min.w, oldW + dx); 
+                        node.x += (node.w - oldW) / 2; 
+                    }
+                    else if (this.state.resizeDir === 'h') { 
+                        const oldH = node.h; 
+                        node.h = Math.max(min.h, oldH + dy); 
+                        node.y += (node.h - oldH) / 2; 
                     }
                 });
+                
+                this.canvas.style.cursor = (this.state.resizeDir === 'w') ? 'ew-resize' : 'ns-resize';
+                this.state.lastMouse = { x: e.clientX, y: e.clientY }; 
+                this.render(); return;
+            }
 
-                this.canvas.style.cursor = this.state.resizeDir === 'w' ? 'ew-resize' : 'ns-resize';
-                this.state.lastMouse = { x: e.clientX, y: e.clientY };
-                this.render();
+            // Создание связи
+           if (this.state.connectionStart) {
+                this.canvas.style.cursor = 'crosshair';
+                // ИСПРАВЛЕНО: Обновляем координаты, чтобы render() видел актуальное положение мыши
+                this.state.lastMouse = { x: e.clientX, y: e.clientY }; 
+                
+                this.state.hover.node = this.hitTestNode(mx, my);
+                if (this.state.hover.node === this.state.connectionStart.node) this.state.hover.node = null;
+                
+                this.render(); 
                 return;
             }
 
-            if (this.state.connectionStart) {
-                const hitNode = this.hitTestNode(mx, my);
-                this.state.hover.node = (hitNode !== this.state.connectionStart.node) ? hitNode : null;
-                this.state.lastMouse = { x: e.clientX, y: e.clientY };
-                this.render();
-                return;
+            // Рамка выделения
+            if (this.state.marqueeStart) { 
+                this.state.marqueeCurrent = { x: mx, y: my }; 
+                this.render(); return; 
             }
 
-            if (this.state.marqueeStart) {
-                this.state.marqueeCurrent = { x: mx, y: my };
-                this.render();
-                return;
-            }
-
+            // Перетаскивание нод
             if (this.state.dragNode) {
-                this.state.hasMovedDuringDrag = true; // Фиксируем, что движение было
-
+                this.state.hasMovedDuringDrag = true;
                 const wp = Utils.screenToWorld(mx, my, this.view.panX, this.view.panY, this.view.zoom);
                 const dx = wp.x - this.state.dragStartWorld.x;
                 const dy = wp.y - this.state.dragStartWorld.y;
-
-                this.state.selection.forEach(node => {
-                    node.x += dx;
-                    node.y += dy;
-                });
-
-                this.state.dragStartWorld = { x: wp.x, y: wp.y };
+                this.state.selection.forEach(node => { node.x += dx; node.y += dy; });
+                this.state.dragStartWorld = wp;
                 this.canvas.style.cursor = 'grabbing';
                 this.state.lastMouse = { x: e.clientX, y: e.clientY };
-                this.render();
-                return;
+                this.render(); return;
             }
 
+            // ЛОГИКА КУРСОРОВ ПРИ НАВЕДЕНИИ
             if (this.state.mode === 'edit') {
-                const prevHoverOut = this.state.hover.output;
-                const prevHoverNode = this.state.hover.node;
-
                 let hitNode = this.hitTestNode(mx, my);
                 let hitOut = null;
-
                 for (let i = this.data.flowchart.nodes.length - 1; i >= 0; i--) {
-                    const n = this.data.flowchart.nodes[i];
-                    const res = this.hitTestOutput(n, mx, my);
-                    if (res) {
-                        hitOut = res;
-                        hitNode = n;
-                        break;
-                    }
+                    const res = this.hitTestOutput(this.data.flowchart.nodes[i], mx, my);
+                    if (res) { hitOut = res; hitNode = this.data.flowchart.nodes[i]; break; }
                 }
-                
+
                 this.state.hover.node = hitNode;
                 this.state.hover.output = hitOut;
                 this.state.hover.connection = (!hitNode) ? this.hitTestConnection(mx, my) : null;
 
-                if (hitOut) {
-                    this.canvas.style.cursor = 'pointer';
-                } else if (this.state.hover.connection) {
+                if (hitOut || this.state.hover.connection) {
                     this.canvas.style.cursor = 'pointer';
                 } else if (hitNode) {
-                    if (this.isSelected(hitNode)) {
-                        const resizeHit = this.hitTestResize(mx, my);
-                        this.canvas.style.cursor = resizeHit ? (resizeHit.dir === 'w' ? 'ew-resize' : 'ns-resize') : 'grab';
+                    const resizeHit = this.hitTestResize(mx, my);
+                    if (resizeHit) {
+                        this.canvas.style.cursor = (resizeHit.dir === 'w') ? 'ew-resize' : 'ns-resize';
                     } else {
                         this.canvas.style.cursor = 'grab';
                     }
                 } else {
-                    this.canvas.style.cursor = 'default';
+                    this.canvas.style.cursor = this.state.isSpacePressed ? 'grab' : 'default';
                 }
-                
-                const outputChanged = (prevHoverOut?.output !== hitOut?.output);
-                const nodeChanged = (prevHoverNode !== hitNode);
-                
-                if (outputChanged || nodeChanged) {
-                    this.render();
-                }
+                this.render();
+            } else {
+                this.canvas.style.cursor = this.state.isSpacePressed ? 'grab' : 'default';
             }
             this.state.lastMouse = { x: e.clientX, y: e.clientY };
         } 
@@ -431,25 +353,20 @@ export class FlowchartEditor {
         // --- 3. MOUSE UP ---
         else if (type === 'up') {
             if (this.state.mode === 'edit') {
-                if (this.state.dragNode && this.state.hasMovedDuringDrag) {
-                    this.history.execute("Move node(s)");
-                }
-                if (this.state.resizing && this.state.hasMovedDuringDrag) {
-                    this.history.execute("Resize node");
-                }
+                if (this.state.dragNode && this.state.hasMovedDuringDrag) this.history.execute("Move node(s)");
+                if (this.state.resizing && this.state.hasMovedDuringDrag) this.history.execute("Resize node");
             }
 
-            if (this.state.marqueeStart) {
-                this.applyMarqueeSelection(e.shiftKey);
-                this.state.marqueeStart = null;
-                this.state.marqueeCurrent = null;
-                this.render();
+            if (this.state.marqueeStart) { 
+                this.applyMarqueeSelection(e.shiftKey); 
+                this.state.marqueeStart = null; 
+                this.state.marqueeCurrent = null; 
+                this.render(); 
             }
 
-            if (this.state.resizing) {
-                this.state.resizing = false;
-                this.state.resizeTarget = null;
-                this.canvas.style.cursor = 'default';
+            if (this.state.resizing) { 
+                this.state.resizing = false; 
+                this.state.resizeTarget = null; 
             }
 
             if (this.state.connectionStart) {
@@ -461,16 +378,10 @@ export class FlowchartEditor {
                 this.render();
             }
             
-            this.state.dragging = false;
-            this.state.dragNode = null;
-
-            if (this.state.mode === 'view') {
-                this.canvas.style.cursor = this.state.isSpacePressed ? 'grab' : 'default';
-            } else {
-                this.canvas.style.cursor = 'default';
-            }
-            
+            this.state.dragging = false; 
+            this.state.dragNode = null; 
             this.state.hasMovedDuringDrag = false;
+            this.canvas.style.cursor = this.state.isSpacePressed ? 'grab' : 'default';
         }
     }
 
@@ -779,8 +690,8 @@ export class FlowchartEditor {
     // --- LOGIC & CRUD ---
 
     connect(source, output, target) {
-        this.history.execute("Connect nodes"); // запомнили действие
         output.cnSID = target.sid;
+        this.history.execute("Connect nodes"); // запомнили действие
     }
 
     select(node) {
@@ -797,7 +708,6 @@ export class FlowchartEditor {
     }
 
     addNode(screenX, screenY) {
-        this.history.execute("Add Node"); // запомнили действие
         const wp = Utils.screenToWorld(screenX, screenY, this.view.panX, this.view.panY, this.view.zoom);
         const defaultOutputsCount = 1;
         const calcH = CONFIG.dims.headerH + (defaultOutputsCount * CONFIG.dims.rowH) + CONFIG.dims.footerH + 10;
@@ -826,35 +736,30 @@ export class FlowchartEditor {
             node: { propertiesBar: {}, nodeTable: {}, color: [0.8, 0.8, 0.8, 1] }, 
             outputs: [{ color: [0, 0, 0, 1], linkMode: "line", propertiesBar: {} }] 
         });
-        
+        this.history.execute("Add Node"); // запомнили действие
         this.select(newNode);
         this.render();
     }
 
     deleteSelection() {
         if (this.state.selection.length === 0) return;
-    
+        const name = this.state.selectionType === 'node' ? `Delete ${this.state.selection.length} node(s)` : "Delete connection(s)";
         if (this.state.selectionType === 'node') {
-            this.history.execute(`Delete ${this.state.selection.length} node(s)`); // запомнили действие
-        } else if (this.state.selectionType === 'connection') {
-            this.history.execute(`Delete ${this.state.selection.length} connection(s)`); // запомнили действие
-        }
-        
-        if (this.state.selection.length === 0) return;
-        if (this.state.selectionType === 'node') {
-            const nodesToDelete = [...this.state.selection];
-            nodesToDelete.forEach(node => this._deleteNodeInternal(node));
-            this.selectSingle(null);
-            this.state.selectionType = 'none';
-        } 
-        else if (this.state.selectionType === 'connection') {
-            this.state.selection.forEach(item => {
-                if (item.output) item.output.cnSID = null;
+            this.state.selection.forEach(node => {
+                const idx = this.data.flowchart.nodes.indexOf(node);
+                if (idx > -1) {
+                    this.data.flowchart.nodes.forEach(n => {
+                        n.outputs?.forEach(o => { if (o.cnSID === node.sid) o.cnSID = null; });
+                        n.pnSIDs = n.pnSIDs.filter(s => s !== node.sid);
+                    });
+                    this.data.flowchart.nodes.splice(idx, 1); this.data.ui.nodes.splice(idx, 1);
+                }
             });
-            this.state.selection = [];
-            this.state.selectionType = 'none';
+        } else {
+            this.state.selection.forEach(s => s.output.cnSID = null);
         }
-        this.render();
+        this.history.execute(name); // Фиксируем ПОСЛЕ
+        this.selectSingle(null); this.state.selectionType = 'none'; this.render();
     }
 
     _deleteNodeInternal(node) {
@@ -913,8 +818,6 @@ export class FlowchartEditor {
     pasteNode(screenX, screenY) {
         if (!this.clipboard || !this.clipboard.items) return;
 
-        this.history.execute(`Paste ${this.clipboard.items.length} node(s)`); // запомнили действие
-
         const wp = Utils.screenToWorld(screenX, screenY, this.view.panX, this.view.panY, this.view.zoom);
         this.selectSingle(null);
 
@@ -932,6 +835,7 @@ export class FlowchartEditor {
             this.data.ui.nodes.push(newUiNode);
             this.addToSelection(newNode);
         });
+        this.history.execute(`Paste ${this.clipboard.items.length} node(s)`); // запомнили действие
         this.render();
     }
 
@@ -943,6 +847,7 @@ export class FlowchartEditor {
         ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this.drawGrid();
         
+        // Отрисовка существующих связей
         this.data.flowchart.nodes.forEach((node, nIdx) => {
             node.outputs?.forEach((out, oIdx) => {
                 if (out.cnSID && out.enable) {
@@ -952,25 +857,47 @@ export class FlowchartEditor {
             });
         });
 
+        // Отрисовка временной связи (при перетаскивании)
         if (this.state.connectionStart) {
             const start = this.getOutputPos(this.state.connectionStart.node, 
                 this.state.connectionStart.node.outputs.indexOf(this.state.connectionStart.output));
+            
             const rect = this.canvas.getBoundingClientRect();
-            let end = this.state.hover.node ? this.getNodeInputPos(this.state.hover.node) : { 
-                x: this.state.lastMouse.x - rect.left, 
-                y: this.state.lastMouse.y - rect.top 
-            };
+            
+            // Если мы над нодой — примагничиваем к входу, иначе — к курсору
+            let end;
+            if (this.state.hover.node) {
+                end = this.getNodeInputPos(this.state.hover.node);
+            } else {
+                end = { 
+                    x: this.state.lastMouse.x - rect.left, 
+                    y: this.state.lastMouse.y - rect.top 
+                };
+            }
+
+            ctx.save();
             ctx.beginPath();
-            ctx.strokeStyle = '#fff';
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+            ctx.lineWidth = 2;
             ctx.setLineDash([5, 5]);
+            
+            // Рисуем кривую Безье для превью, как и у настоящих связей
+            const cpOffset = Math.abs(end.x - start.x) * 0.5;
             ctx.moveTo(start.x, start.y);
-            ctx.lineTo(end.x, end.y);
+            ctx.bezierCurveTo(
+                start.x + cpOffset, start.y, 
+                end.x - cpOffset, end.y, 
+                end.x, end.y
+            );
+            
             ctx.stroke();
-            ctx.setLineDash([]);
+            ctx.restore();
         }
 
+        // Отрисовка нод
         this.data.flowchart.nodes.forEach((node, i) => this.drawNode(node, i));
 
+        // Отрисовка рамки выделения (Marquee)
         if (this.state.marqueeStart && this.state.marqueeCurrent) {
             const x = Math.min(this.state.marqueeStart.x, this.state.marqueeCurrent.x);
             const y = Math.min(this.state.marqueeStart.y, this.state.marqueeCurrent.y);
@@ -1205,10 +1132,10 @@ export class FlowchartEditor {
         
         // Добавлен debounce для текстовых полей
         p.querySelectorAll('.node-input').forEach(el => {
-            el.oninput = e => { 
+            el.oninput = e => {
+                node[e.target.dataset.key] = e.target.value; 
                 // Используем debounced версию, чтобы не создавать снимок на каждую букву
                 this.history.executeDebounced("Edit node property");
-                node[e.target.dataset.key] = e.target.value; 
                 this.render(); 
             };
         });
@@ -1216,12 +1143,11 @@ export class FlowchartEditor {
         // Добавлено сохранение в историю для чекбоксов
         p.querySelectorAll('.node-check').forEach(el => {
             el.onchange = e => {
-                this.history.execute("Toggle node option"); // ← ДОБАВЛЕНО
-                
                 if(e.target.dataset.key === 's' && e.target.checked) {
                     this.data.flowchart.nodes.forEach(n => n.s = false);
                 }
                 node[e.target.dataset.key] = e.target.checked; 
+                this.history.execute("Toggle node option"); // ← ДОБАВЛЕНО
                 this.render(); 
             };
         });
@@ -1229,11 +1155,10 @@ export class FlowchartEditor {
         // Добавлен debounce для output текстовых полей
         p.querySelectorAll('.out-input').forEach(el => {
             el.oninput = e => {
-                this.history.executeDebounced("Edit output property"); // ← ДОБАВЛЕНО
-                
                 let v = e.target.value;
                 if(e.target.tagName === 'TEXTAREA') v = v.replace(/\n/g, '\\n');
                 node.outputs[e.target.dataset.idx][e.target.dataset.key] = v;
+                this.history.executeDebounced("Edit output property"); // ← ДОБАВЛЕНО
                 this.render();
             };
         });
@@ -1241,8 +1166,6 @@ export class FlowchartEditor {
         // Добавлено сохранение в историю для output чекбоксов
         p.querySelectorAll('.out-check').forEach(el => {
             el.onchange = e => {
-                this.history.execute("Toggle output option"); // ← ДОБАВЛЕНО
-                
                 const idx = e.target.dataset.idx;
                 const key = e.target.dataset.key;
                 if (key === 'default' && e.target.checked) {
@@ -1250,6 +1173,7 @@ export class FlowchartEditor {
                 }
                 node.outputs[idx][key] = e.target.checked;
                 this.generateProperties(node);
+                this.history.execute("Toggle output option"); // ← ДОБАВЛЕНО
                 this.render();
             };
         });
@@ -1258,8 +1182,6 @@ export class FlowchartEditor {
         
         // Добавлено сохранение в историю при добавлении output
         document.getElementById('prop-add-out').onclick = () => {
-            this.history.execute("Add output"); // ← ДОБАВЛЕНО
-            
             node.outputs.push({ 
                 sid: Utils.uuid(), 
                 name: "Option", 
@@ -1278,13 +1200,13 @@ export class FlowchartEditor {
             }
             
             this.generateProperties(node); 
+            this.history.execute("Add output"); // ← ДОБАВЛЕНО
             this.render();
         };
         
         // Добавлено сохранение в историю при удалении output
         p.querySelectorAll('[data-del-out]').forEach(b => {
             b.onclick = e => {
-                this.history.execute("Delete output"); // ← ДОБАВЛЕНО
                 
                 const outIdx = parseInt(e.target.dataset.delOut);
                 node.outputs.splice(outIdx, 1);
@@ -1295,6 +1217,7 @@ export class FlowchartEditor {
                 }
                 
                 this.generateProperties(node); 
+                this.history.execute("Delete output"); // ← ДОБАВЛЕНО
                 this.render();
             };
         });
@@ -1514,23 +1437,93 @@ export class FlowchartEditor {
     }
 
     _miniFlowAutoLayout(nodes, rootSid) {
-        const START_X = 300, START_Y = 300, X_STEP = 500, Y_STEP = 300;
-        const visited = new Set(), queue = [{ sid: rootSid, layer: 0 }], layerNextY = {}; 
-        nodes.forEach(n => { n.x = 0; n.y = 0; });
-        while (queue.length > 0) {
-            const { sid, layer } = queue.shift();
-            if (visited.has(sid)) continue;
-            visited.add(sid);
-            const node = nodes.find(n => n.sid === sid);
-            if (!node) continue;
-            if (layerNextY[layer] === undefined) layerNextY[layer] = 0;
-            node.x = START_X + (layer * X_STEP);
-            node.y = START_Y + layerNextY[layer];
-            layerNextY[layer] += Math.max(node.h, 200) + 50;
-            if (node.outputs) node.outputs.forEach(out => { if (out.cnSID && !visited.has(out.cnSID)) queue.push({ sid: out.cnSID, layer: layer + 1 }); });
+        const START_X = 300;
+        const X_STEP = 500;
+        const Y_GAP = 100;
+        const visited = new Set();
+        
+        // Храним максимальную Y координату, чтобы знать, где заканчивается текущий блок
+        let globalMaxY = 300;
+
+        /**
+         * Вспомогательная функция для обхода компонента связности (BFS)
+         * @param {string} startSid - SID с которого начинаем
+         * @param {number} topAnchorY - Y координата, от которой начинаем строить "остров"
+         */
+        const layoutIsland = (startSid, topAnchorY) => {
+            const queue = [{ sid: startSid, layer: 0 }];
+            const layerNextY = {}; // Храним текущий Y для каждого уровня (колонки)
+            let localMaxY = topAnchorY;
+
+            while (queue.length > 0) {
+                const { sid, layer } = queue.shift();
+                if (visited.has(sid)) continue;
+                visited.add(sid);
+
+                const node = nodes.find(n => n.sid === sid);
+                if (!node) continue;
+
+                // Если в этой колонке еще не было нод, начинаем с верхнего якоря
+                if (layerNextY[layer] === undefined) {
+                    layerNextY[layer] = topAnchorY;
+                }
+
+                // Устанавливаем координаты
+                node.x = START_X + (layer * X_STEP);
+                node.y = layerNextY[layer];
+
+                // Рассчитываем высоту ноды (с учетом контента)
+                const outputsCount = node.outputs ? node.outputs.length : 0;
+                const contentH = CONFIG.dims.headerH + (outputsCount * CONFIG.dims.rowH) + CONFIG.dims.footerH + 10;
+                const nodeH = Math.max(node.h || 0, contentH);
+
+                // Обновляем Y для следующей ноды в этой же колонке
+                layerNextY[layer] += nodeH + Y_GAP;
+
+                // Фиксируем самую нижнюю точку этого "острова"
+                if (node.y + nodeH > localMaxY) {
+                    localMaxY = node.y + nodeH;
+                }
+
+                // Добавляем дочерние ноды в очередь
+                if (node.outputs) {
+                    node.outputs.forEach(out => {
+                        if (out.cnSID && !visited.has(out.cnSID)) {
+                            queue.push({ sid: out.cnSID, layer: layer + 1 });
+                        }
+                    });
+                }
+            }
+            return localMaxY;
+        };
+
+        // 1. Сначала выстраиваем основной граф, идя от корня
+        if (rootSid && nodes.some(n => n.sid === rootSid)) {
+            globalMaxY = layoutIsland(rootSid, 300);
         }
-        this.view.panX = 50 - (START_X * this.view.zoom); 
-        this.view.panY = 50 - (START_Y * this.view.zoom);
+
+        // 2. Обработка "сирот" (orphans) и изолированных островов
+        // Идем по всем нодам, и если нода еще не была посещена BFS — строим для неё новый остров ниже
+        const orphans = nodes.filter(n => !visited.has(n.sid));
+        
+        if (orphans.length > 0) {
+            // Добавляем отступ от основного графа
+            globalMaxY += 250; 
+            
+            // Если "сирота" одна или их мало — просто выстроим их в ряд или сетку
+            // Но мы используем тот же layoutIsland, чтобы если у "сироты" есть свои связи, 
+            // они тоже выстроились красиво.
+            for (const orphan of nodes) {
+                if (!visited.has(orphan.sid)) {
+                    // Строим новый остров, обновляя глобальный низ
+                    globalMaxY = layoutIsland(orphan.sid, globalMaxY) + Y_GAP;
+                }
+            }
+        }
+
+        // 3. Финальная настройка камеры
+        this.view.panX = 100 - (START_X * this.view.zoom); 
+        this.view.panY = 100 - (300 * this.view.zoom);
     }
 
     // Добавить этот метод в класс FlowchartEditor в js/editor-core.js
