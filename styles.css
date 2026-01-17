@@ -87,7 +87,17 @@ body {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    /* Базовый шрифт */
+    font-weight: 500;
 }
+
+/* Состояние Unsaved (стиль Blender) */
+#filename-display.is-unsaved {
+    font-style: italic;
+    color: var(--text-dim);
+    opacity: 0.8;
+}
+
 #filename-display:hover {
     border-bottom-color: var(--accent);
     color: var(--accent-hover);
@@ -114,7 +124,7 @@ body {
 }
 
 .dropdown-item .shortcut {
-    color: #text-dim; /* Исправлено: использование переменной */
+    color: #text-dim; /* Использование переменной */
     font-size: 11px;
     margin-left: 20px;
 }

@@ -172,7 +172,7 @@ export class FlowchartEditor {
         this.ctx = this.canvas.getContext('2d');
         
         this.data = { 
-            flowchart: { name: "New Project", nodes: [] }, 
+            flowchart: { name: "", nodes: [] }, 
             ui: { nodes: [] }, 
             original: null 
         };
@@ -1839,7 +1839,7 @@ export class FlowchartEditor {
             format: "flowproj",
             version: "1.1.0",
             meta: {
-                title: this.data.flowchart.name,
+                title: this.data.flowchart.name || "Untitled",
                 modified: Date.now()
             },
             projectData: {
@@ -1851,7 +1851,7 @@ export class FlowchartEditor {
 
     async projectSaveAs() {
         const projectData = this._prepareProjectJson();
-        const filename = (this.data.flowchart.name || "project") + ".flowproj";
+        const filename = (this.data.flowchart.name || "Untitled") + ".flowproj";
 
         // Попытка использовать системный диалог (работает в Chrome/Edge вне iframe)
         if ('showSaveFilePicker' in window) {

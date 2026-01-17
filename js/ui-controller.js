@@ -185,40 +185,76 @@ document.addEventListener('click', () => {
 });
 
 // --- FILENAME EDITING LOGIC (from monolithic class method) ---
+// Перепишите функцию bindFilenameEvents целиком в js/ui-controller.js
+
 const bindFilenameEvents = () => {
     const display = document.getElementById('filename-display');
     if (!display) return;
     
+    // Вспомогательная функция для обновления визуала (Blender style)
+    const updateFilenameDisplay = () => {
+        const name = app.data.flowchart.name;
+        if (!name || name.trim() === "") {
+            display.textContent = "(Unsaved)";
+            display.classList.add('is-unsaved');
+        } else {
+            display.textContent = name;
+            display.classList.remove('is-unsaved');
+        }
+    };
+
+    // Первичный запуск
+    updateFilenameDisplay();
+
     display.onclick = () => {
         if (!app.data.flowchart) return;
         if (display.querySelector('input')) return;
 
-        const currentName = app.data.flowchart.name || 'flowchart';
+        const currentName = app.data.flowchart.name || "";
         const input = document.createElement('input');
         input.id = 'filename-input';
         input.value = currentName;
+        input.placeholder = "Untitled"; // Подсказка как в Blender
         
         const save = () => {
             let val = input.value.trim();
+            // Очистка спецсимволов
             val = val.replace(/[^a-zA-Z0-9_\-\sа-яА-Я]/g, '_');
-            if (!val) val = 'flowchart';
-            app.data.flowchart.name = val;
-            display.textContent = val;
+            
+            // Если ввели пусто — сбрасываем в Unsaved
+            if (!val) {
+                app.data.flowchart.name = "";
+            } else {
+                app.data.flowchart.name = val;
+            }
+            updateFilenameDisplay();
         };
 
         input.onblur = save;
         input.onkeydown = (e) => {
             e.stopPropagation(); 
             if (e.key === 'Enter') input.blur();
-            if (e.key === 'Escape') display.textContent = currentName; 
+            if (e.key === 'Escape') {
+                updateFilenameDisplay(); // Отмена изменений
+            }
         };
 
         display.textContent = '';
+        display.classList.remove('is-unsaved'); // Убираем италик на время ввода
         display.appendChild(input);
         input.focus();
         input.select();
     };
+
+    // Чтобы при загрузке файла имя тоже обновлялось корректно
+    // Добавим вызов в общую область видимости или через прокси
+    const originalLoad = app.load;
+    app.load = async (...args) => {
+        await originalLoad.apply(app, args);
+        updateFilenameDisplay();
+    };
 };
+
 bindFilenameEvents();
 
 // --- FILE OPERATIONS HANDLERS ---
