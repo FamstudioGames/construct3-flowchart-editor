@@ -332,20 +332,30 @@ document.getElementById('tool-add-out').onclick = () => {
     if (btn) btn.click();
 };
 
+// Кнопка Enable/Disable на тулбаре
 document.getElementById('tool-enable').onclick = () => { 
     if (app.state.selectionType === 'node' && app.state.selection.length === 1) { 
         const node = app.state.selection[0];
         node.e = !node.e; 
+        
+        // Фиксируем в истории
+        app.history.execute(`Toggle node option: ${node.e ? "Enable" : "Disable"}`);
+        
         app.generateProperties(node); 
         app.render(); 
     }
 };
 
+// Кнопка Set Start на тулбаре
 document.getElementById('tool-start').onclick = () => { 
     if (app.state.selectionType === 'node' && app.state.selection.length === 1) { 
         const node = app.state.selection[0];
         app.data.flowchart.nodes.forEach(n => n.s = false); 
         node.s = true; 
+        
+        // Фиксируем в истории
+        app.history.execute("Toggle node option: Set start");
+        
         app.generateProperties(node); 
         app.render(); 
     }

@@ -655,6 +655,7 @@ export class FlowchartEditor {
 
         if (count === 0) {
             panel.innerHTML = '<div class="prop-group"><h3>No Selection</h3></div>';
+            btnDel.innerHTML = 'Delete ...'; // Дефолт
             btnDel.disabled = true;
             btnAddOut.disabled = true;
             btnEnable.disabled = true;
@@ -665,6 +666,7 @@ export class FlowchartEditor {
             const title = count === 1 ? 'Connection Selected' : `Selection (${count} connections)`;
             panel.innerHTML = `<div class="prop-group"><h3>${title}</h3><p style="color:#aaa">Press Delete to remove connection.</p></div>`;
             btnDel.disabled = false;
+            btnDel.innerHTML = 'Delete Connection';
             btnAddOut.disabled = true;
             btnEnable.disabled = true;
             btnStart.disabled = true;
@@ -672,6 +674,7 @@ export class FlowchartEditor {
         } 
         else if (this.state.selectionType === 'node') {
             btnDel.disabled = false;
+            btnDel.innerHTML = count > 1 ? `Delete ${count} Nodes` : 'Delete Node';
             if (count === 1) {
                 this.generateProperties(this.state.selection[0]);
                 btnAddOut.disabled = false;
@@ -1049,9 +1052,23 @@ export class FlowchartEditor {
         const rh = CONFIG.dims.rowH * this.view.zoom;
         const yOff = startY + (idx * rh);
         const textY = pos.y + yOff + rh/2;
+        
+        // Объявляем размер шрифта в начале, чтобы он был доступен для всех блоков ниже
+        const fontBaseSize = Math.max(9, 12 * this.view.zoom);
+
+        // 1. Рисуем индекс выхода (#1, #2...) серого цвета слева
+        this.ctx.save();
+        this.ctx.textAlign = 'left';
+        this.ctx.font = `${fontBaseSize}px monospace`;
+        this.ctx.fillStyle = '#666';
+        this.ctx.fillText(`#${idx}`, pos.x + 10 * this.view.zoom, textY);
+        this.ctx.restore();
+
+        // 2. Подготовка к отрисовке имени и значения справа
         this.ctx.textAlign = 'right';
         let currentX = pos.x + (node.w * this.view.zoom) - (15 * this.view.zoom);
-        const fontBaseSize = Math.max(9, 12 * this.view.zoom);
+
+        // Отрисовка текста (Default)
         if (out.default) {
             this.ctx.font = `bold ${Math.max(8, 10 * this.view.zoom)}px sans-serif`;
             this.ctx.fillStyle = '#4caf50';
@@ -1059,6 +1076,8 @@ export class FlowchartEditor {
             this.ctx.fillText(defText, currentX, textY);
             currentX -= this.ctx.measureText(defText).width;
         }
+
+        // Отрисовка текста Value
         if (out.value) {
             this.ctx.font = `${fontBaseSize}px sans-serif`;
             this.ctx.fillStyle = '#ccc';
@@ -1066,17 +1085,31 @@ export class FlowchartEditor {
             this.ctx.fillText(valText, currentX, textY);
             currentX -= this.ctx.measureText(valText).width;
         }
+
+        // Отрисовка Имени выхода
         this.ctx.font = `bold ${fontBaseSize}px sans-serif`;
         this.ctx.fillStyle = nameColor; 
         this.ctx.fillText(out.name, currentX, textY);
+
+        // 3. Рисуем точку (dot) выхода
         const cx = pos.x + node.w * this.view.zoom;
         const cy = pos.y + yOff + rh/2;
         this.ctx.beginPath();
         this.ctx.arc(cx, cy, CONFIG.dims.dotRadius * this.view.zoom, 0, Math.PI*2);
-        this.ctx.fillStyle = (this.state.hover.output?.output === out) ? '#fff' : (out.cnSID ? CONFIG.colors.selection : '#444');
+        
+        // Подсветка точки
+        if (this.state.hover.output?.output === out) {
+            this.ctx.fillStyle = '#fff';
+        } else {
+            this.ctx.fillStyle = out.cnSID ? CONFIG.colors.selection : '#444';
+        }
+        
         this.ctx.fill();
+        this.ctx.strokeStyle = '#222';
+        this.ctx.lineWidth = 1;
         this.ctx.stroke();
-        this.ctx.textAlign = 'left'; 
+        
+        this.ctx.textAlign = 'left'; // Сброс выравнивания
     }
 
     resetView() {
@@ -1130,62 +1163,76 @@ export class FlowchartEditor {
         html += '</div></div>';
         p.innerHTML = html;
         
-        // Добавлен debounce для текстовых полей
+        // 1. Текстовые поля ноды
         p.querySelectorAll('.node-input').forEach(el => {
             el.oninput = e => {
                 node[e.target.dataset.key] = e.target.value; 
-                // Используем debounced версию, чтобы не создавать снимок на каждую букву
                 this.history.executeDebounced("Edit node property");
                 this.render(); 
             };
         });
         
-        // Добавлено сохранение в историю для чекбоксов
+        // 2. Чекбоксы ноды
         p.querySelectorAll('.node-check').forEach(el => {
             el.onchange = e => {
-                if(e.target.dataset.key === 's' && e.target.checked) {
+                const key = e.target.dataset.key; // 'e' или 's'
+                const value = e.target.checked;
+
+                if (key === 's' && value) {
+                    // Если назначаем стартовую, убираем флаг у остальных
                     this.data.flowchart.nodes.forEach(n => n.s = false);
                 }
-                node[e.target.dataset.key] = e.target.checked; 
-                this.history.execute("Toggle node option"); // ← ДОБАВЛЕНО
+                
+                node[key] = value; 
+
+                // Формируем имя согласно задаче
+                let optionName = "";
+                if (key === 'e') optionName = value ? "Enable" : "Disable";
+                if (key === 's') optionName = value ? "Set start" : "Unset start";
+
+                this.history.execute(`Toggle node option: ${optionName}`); 
                 this.render(); 
             };
         });
         
-        // Добавлен debounce для output текстовых полей
+        // 3. Текстовые поля выходов
         p.querySelectorAll('.out-input').forEach(el => {
             el.oninput = e => {
                 let v = e.target.value;
                 if(e.target.tagName === 'TEXTAREA') v = v.replace(/\n/g, '\\n');
                 node.outputs[e.target.dataset.idx][e.target.dataset.key] = v;
-                this.history.executeDebounced("Edit output property"); // ← ДОБАВЛЕНО
+                this.history.executeDebounced("Edit output property");
                 this.render();
             };
         });
         
-        // Добавлено сохранение в историю для output чекбоксов
+        // 4. Чекбоксы выходов
         p.querySelectorAll('.out-check').forEach(el => {
             el.onchange = e => {
                 const idx = e.target.dataset.idx;
                 const key = e.target.dataset.key;
-                if (key === 'default' && e.target.checked) {
+                const value = e.target.checked;
+
+                if (key === 'default' && value) {
                     node.outputs.forEach(o => o.default = false);
                 }
-                node.outputs[idx][key] = e.target.checked;
+                node.outputs[idx][key] = value;
+                
                 this.generateProperties(node);
-                this.history.execute("Toggle output option"); // ← ДОБАВЛЕНО
+                this.history.execute(key === 'enable' ? (value ? "Enable Output" : "Disable Output") : "Set Default Output"); 
                 this.render();
             };
         });
         
         const nodeIdx = this.data.flowchart.nodes.indexOf(node);
         
-        // Добавлено сохранение в историю при добавлении output
+        // 5. Добавление выхода
         document.getElementById('prop-add-out').onclick = () => {
+            const nextIdx = node.outputs.length;
             node.outputs.push({ 
                 sid: Utils.uuid(), 
-                name: "Option", 
-                value: "", 
+                name: `Option ${nextIdx}`, 
+                value: `Value ${nextIdx}`, 
                 enable: true, 
                 default: false 
             });
@@ -1193,21 +1240,18 @@ export class FlowchartEditor {
             
             if (this.data.ui.nodes[nodeIdx]) {
                 this.data.ui.nodes[nodeIdx].outputs.push({ 
-                    color: [0,0,0,1], 
-                    linkMode: "line", 
-                    propertiesBar: {} 
+                    color: [0,0,0,1], linkMode: "line", propertiesBar: {} 
                 });
             }
             
             this.generateProperties(node); 
-            this.history.execute("Add output"); // ← ДОБАВЛЕНО
+            this.history.execute("Add output");
             this.render();
         };
         
-        // Добавлено сохранение в историю при удалении output
+        // 6. Удаление выхода
         p.querySelectorAll('[data-del-out]').forEach(b => {
             b.onclick = e => {
-                
                 const outIdx = parseInt(e.target.dataset.delOut);
                 node.outputs.splice(outIdx, 1);
                 node.h = Math.max(this.getMinNodeSize(node).h, node.h - CONFIG.dims.rowH);
@@ -1217,7 +1261,7 @@ export class FlowchartEditor {
                 }
                 
                 this.generateProperties(node); 
-                this.history.execute("Delete output"); // ← ДОБАВЛЕНО
+                this.history.execute("Delete output");
                 this.render();
             };
         });
@@ -1228,25 +1272,78 @@ export class FlowchartEditor {
         const items = [];
         const rect = this.canvas.getBoundingClientRect();
         const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+
         if (this.state.hover.connection) {
-            items.push({ txt: 'Delete Connection', fn: () => { this.state.hover.connection.output.cnSID = null; this.render(); }});
+            items.push({ 
+                txt: 'Delete Connection', 
+                fn: () => { 
+                    this.state.hover.connection.output.cnSID = null; 
+                    this.history.execute("Delete Connection"); 
+                    this.render(); 
+                }
+            });
         } else if (this.state.hover.node) {
             const n = this.state.hover.node;
             if (!this.isSelected(n)) this.selectSingle(n);
             const count = this.state.selection.length;
+
             items.push({ txt: 'Copy', fn: () => this.copyNode() });
-            items.push({ txt: count > 1 ? `Delete ${count} nodes` : 'Delete node', fn: () => this.deleteSelection() });
+            items.push({ 
+                txt: count > 1 ? `Delete ${count} nodes` : 'Delete node', 
+                fn: () => this.deleteSelection() // История фиксируется внутри метода deleteSelection
+            });
             items.push({ txt: '----------------', fn: () => {} });
-            items.push({ txt: n.e ? 'Disable' : 'Enable', fn: () => { n.e = !n.e; this.render(); }});
-            items.push({ txt: 'Set Start', fn: () => { this.data.flowchart.nodes.forEach(x=>x.s=false); n.s=true; this.render(); }});
+            items.push({ 
+                txt: n.e ? 'Disable Node' : 'Enable Node', 
+                fn: () => { 
+                    n.e = !n.e; 
+                    // Фиксируем историю с новым форматом имени
+                    this.history.execute(`Toggle node option: ${n.e ? "Enable" : "Disable"}`); 
+                    this.render(); 
+                }
+            });
+            items.push({ 
+                txt: 'Set Start Node', 
+                fn: () => { 
+                    this.data.flowchart.nodes.forEach(x => x.s = false); 
+                    n.s = true; 
+                    // Фиксируем историю с новым форматом имени
+                    this.history.execute("Toggle node option: Set start"); 
+                    this.render(); 
+                }
+            });
         } else {
-            items.push({ txt: 'Add Node', fn: () => this.addNode(e.clientX, e.clientY) });
-            if (this.clipboard) items.push({ txt: 'Paste Node', fn: () => this.pasteNode(mx, my) });
+            items.push({ 
+                txt: 'Add Node', 
+                fn: () => this.addNode(e.clientX, e.clientY) // История фиксируется внутри метода addNode
+            });
+            if (this.clipboard) {
+                items.push({ 
+                    txt: 'Paste Node', 
+                    fn: () => this.pasteNode(mx, my) // История фиксируется внутри метода pasteNode
+                });
+            }
         }
-        menu.innerHTML = items.map((i, idx) => i.txt.startsWith('---') ? `<div style="border-top:1px solid #444; margin:4px 0;"></div>` : `<div class="ctx-item" data-i="${idx}">${i.txt}</div>`).join('');
-        menu.style.left = e.clientX + 'px'; menu.style.top = e.clientY + 'px';
+
+        // Рендерим меню
+        menu.innerHTML = items.map((i, idx) => 
+            i.txt.startsWith('---') 
+            ? `<div style="border-top:1px solid #444; margin:4px 0;"></div>` 
+            : `<div class="ctx-item" data-i="${idx}">${i.txt}</div>`
+        ).join('');
+
+        menu.style.left = e.clientX + 'px'; 
+        menu.style.top = e.clientY + 'px';
         menu.classList.add('active');
-        menu.onclick = (evt) => { const idx = evt.target.dataset.i; if(idx !== undefined) { items[idx].fn(); menu.classList.remove('active'); }};
+
+        // Обработка клика
+        menu.onclick = (evt) => { 
+            const idx = evt.target.dataset.i; 
+            if(idx !== undefined) { 
+                items[idx].fn(); 
+                menu.classList.remove('active'); 
+            }
+        };
     }
 
     openHelp(sectionId) {
@@ -1376,6 +1473,9 @@ export class FlowchartEditor {
             const actionName = isImport ? "Import Project" : "Open File";
             this.history.execute(actionName);
         }
+
+        // закрываем все открытые меню
+        document.querySelectorAll('.dropdown, .submenu').forEach(d => d.style.display = 'none');
     }
 
     exportMiniFlow() {
