@@ -2,7 +2,7 @@
 
 A lightweight, browser-based visual editor for creating interactive dialogs, quests, and state machines. Built with vanilla JavaScript for game developers working with node-based flowcharts.
 
-[![Version](https://img.shields.io/badge/version-1.0-blue.svg)](https://github.com/yourusername/flowchart-editor)
+[![Version](https://img.shields.io/badge/version-1.0-blue.svg)](https://github.com/FamstudioGames/construct3-flowchart-editor)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 ## Features
