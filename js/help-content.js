@@ -190,16 +190,20 @@ const HELP_CONTENTS = {
         <p>If this tool speeds up your workflow, consider supporting future updates.</p>
         
         <p>
-            <a href="https://famstudiogames.itch.io/advanced-flowchart-editor-for-construct-3/donate" class="button-donate" style="
-                display: inline-block;
-                background-color: #ff4757;
-                color: white;
-                padding: 10px 20px;
-                text-decoration: none;
-                border-radius: 4px;
-                font-weight: bold;
-                margin-top: 10px;
-                box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            <a href="https://famstudiogames.itch.io/advanced-flowchart-editor-for-construct-3/donate" 
+            class="button-donate" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            style="
+                    display: inline-block;
+                    background-color: #ff4757;
+                    color: white;
+                    padding: 10px 20px;
+                    text-decoration: none;
+                    border-radius: 4px;
+                    font-weight: bold;
+                    margin-top: 10px;
+                    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
             ">♥ Donate $3</a>
         </p>
 
