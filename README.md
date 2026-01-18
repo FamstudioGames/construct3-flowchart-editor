@@ -1,6 +1,6 @@
 # Flowchart Editor
 
-A lightweight, browser-based visual editor for creating interactive dialogs, quests, and state machines. Built with vanilla JavaScript for game developers working with node-based flowcharts.
+A lightweight, browser-based visual editor for creating interactive dialogs, quests, and state machines. Built with vanilla JavaScript, featuring native Construct 3 format support and custom export options for node-based workflows.
 
 [![Version](https://img.shields.io/badge/version-1.0-blue.svg)](https://github.com/FamstudioGames/construct3-flowchart-editor)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -123,7 +123,7 @@ Simplified JSON format for custom parsers and lightweight integration. Single fi
 
 If this tool helps your workflow, consider supporting development:
 
-[Donate $3](https://your-donate-link.com)
+[Donate $3](https://famstudiogames.itch.io/advanced-flowchart-editor-for-construct-3/donate)
 
 ## Contact
 
