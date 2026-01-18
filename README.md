@@ -5,6 +5,8 @@ A lightweight, browser-based visual editor for creating interactive dialogs, que
 [![Version](https://img.shields.io/badge/version-1.0-blue.svg)](https://github.com/FamstudioGames/construct3-flowchart-editor)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
+**[Use Online on itch.io](https://famstudiogames.itch.io/advanced-flowchart-editor-for-construct-3)** – No installation required, works in browser
+
 ## Features
 
 - **Node-Based Visual Editor** – Intuitive drag-and-drop interface for complex flowcharts
