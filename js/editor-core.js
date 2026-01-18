@@ -188,7 +188,12 @@ export class FlowchartEditor {
             ui: { nodes: [] }, 
             original: null 
         };
-        this.view = { zoom: 1, panX: 0, panY: 0 };
+        // 1. Устанавливаем фактический зум 50%
+        this.view = { zoom: 0.5, panX: 0, panY: 0 };
+        
+        // 2. СИНХРОНИЗИРУЕМ ИНТЕРФЕЙС: обновляем текст в кружочке зума при старте
+        const zoomDisplay = document.getElementById('zoom-level');
+        if (zoomDisplay) zoomDisplay.textContent = '50%';
         
         this.state = {
             mode: 'view', dragging: false, lastMouse: { x: 0, y: 0 },
@@ -1270,11 +1275,15 @@ export class FlowchartEditor {
     }
 
     resetView() {
-        if (!this.data.flowchart || this.data.flowchart.nodes.length === 0) {
-            this.view = { zoom: 1, panX: 0, panY: 0 };
+        if (!this.data.flowchart || !this.data.flowchart.nodes || this.data.flowchart.nodes.length === 0) {
+            this.view = { zoom: 0.5, panX: 0, panY: 0 };
+            const zoomDisplay = document.getElementById('zoom-level');
+            if (zoomDisplay) zoomDisplay.textContent = '50%';
             this.render();
             return;
         }
+
+        // 1. Считаем границы всех нод (Bounding Box)
         let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
         this.data.flowchart.nodes.forEach(node => {
             const outputsCount = node.outputs ? node.outputs.length : 0;
@@ -1285,15 +1294,30 @@ export class FlowchartEditor {
             minY = Math.min(minY, node.y - actualH / 2);
             maxY = Math.max(maxY, node.y + actualH / 2);
         });
-        const padding = 50;
-        const canvasW = this.canvas.width - (padding * 2);
+
+        // 2. Вычисляем доступную ширину (Канвас минус Панель свойств)
+        const panel = document.getElementById('properties-panel');
+        const panelWidth = (panel && panel.classList.contains('active')) ? panel.offsetWidth : 0;
+        const availableWidth = this.canvas.width - panelWidth;
+        
+        const padding = 60; // Отступ от краев
+        const canvasW = availableWidth - (padding * 2);
         const canvasH = this.canvas.height - (padding * 2);
+
+        // 3. Рассчитываем идеальный зум
         let newZoom = Math.min(canvasW / (maxX - minX), canvasH / (maxY - minY));
         newZoom = Math.max(CONFIG.zoom.min, Math.min(newZoom, 1));
         this.view.zoom = newZoom;
-        this.view.panX = (this.canvas.width / 2) - (((minX + maxX) / 2) * newZoom);
+
+        // 4. Центрируем камеру в свободной от панели области
+        // (availableWidth / 2) — это центр видимого куска канваса
+        this.view.panX = (availableWidth / 2) - (((minX + maxX) / 2) * newZoom);
         this.view.panY = (this.canvas.height / 2) - (((minY + maxY) / 2) * newZoom);
-        document.getElementById('zoom-level').textContent = Math.round(this.view.zoom * 100) + '%';
+
+        // Обновляем текст в UI
+        const zoomDisplay = document.getElementById('zoom-level');
+        if (zoomDisplay) zoomDisplay.textContent = Math.round(this.view.zoom * 100) + '%';
+        
         this.render();
     }
 

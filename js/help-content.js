@@ -20,34 +20,59 @@ const HELP_CONTENTS = {
         <p>If you see <strong>(Unsaved)</strong> in the title bar, click it to give your project a name before saving.</p>
     `,
 
-    "controls": `
-        <h2>Controls & Shortcuts</h2>
-        <h3>Navigation</h3>
-        <table>
-            <tr><th>Input</th><th>Action</th></tr>
-            <tr><td><kbd>Space</kbd> + LMB Drag</td><td>Pan canvas view</td></tr>
-            <tr><td><kbd>MMB</kbd> Drag</td><td>Pan canvas view</td></tr>
-            <tr><td><kbd>Ctrl</kbd> + <kbd>Wheel</kbd></td><td>Zoom in/out</td></tr>
-        </table>
+"controls": `
+    <h2>Controls & Shortcuts</h2>
+    
+    <p>Efficient workflow relies on mastering key bindings. The editor supports a comprehensive Undo/Redo history stack accessible via Edit menu.</p>
 
-        <h3>Editing</h3>
-        <table>
-            <tr><th>Key</th><th>Action</th></tr>
-            <tr><td><kbd>Ctrl</kbd> + <kbd>Z</kbd> / <kbd>Y</kbd></td><td>Undo / Redo (Post-Action History)</td></tr>
-            <tr><td><kbd>Ctrl</kbd> + <kbd>C</kbd> / <kbd>V</kbd></td><td>Copy / Paste selected nodes</td></tr>
-            <tr><td><kbd>Ctrl</kbd> + <kbd>E</kbd></td><td>Quick Export (Construct 3)</td></tr>
-            <tr><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>E</kbd></td><td>Export MiniFlow</td></tr>
-            <tr><td><kbd>Delete</kbd></td><td>Delete selection (Nodes or Connections)</td></tr>
-            <tr><td><kbd>Esc</kbd></td><td>Deselect all / Close Modal</td></tr>
-        </table>
+    <h3>Navigation & Viewport</h3>
+    <table>
+        <tr><th>Input</th><th>Action</th></tr>
+        <tr><td><kbd>Space</kbd> + LMB Drag</td><td>Pan canvas view</td></tr>
+        <tr><td><kbd>MMB</kbd> Drag</td><td>Pan canvas view</td></tr>
+        <tr><td><kbd>Ctrl</kbd> + <kbd>Wheel</kbd></td><td>Zoom in/out</td></tr>
+    </table>
 
-        <h3>Smart Behaviors</h3>
-        <ul>
-            <li><strong>Cascade Creation:</strong> Nodes created via Toolbar are automatically offset in a staircase pattern until you move the camera.</li>
-            <li><strong>Group Operations:</strong> You can Enable/Disable multiple selected nodes at once via the Toolbar or Context Menu.</li>
-            <li><strong>Auto-Truncation:</strong> Long output values are automatically shortened with "..." to keep the graph readable.</li>
-        </ul>
-    `,
+    <h3>Editing</h3>
+    <table>
+        <tr><th>Key</th><th>Action</th></tr>
+        <tr><td><kbd>Ctrl</kbd> + <kbd>Z</kbd></td><td>Undo last action</td></tr>
+        <tr><td><kbd>Ctrl</kbd> + <kbd>Y</kbd></td><td>Redo reverted action</td></tr>
+        <tr><td><kbd>Ctrl</kbd> + <kbd>C</kbd></td><td>Copy selected nodes</td></tr>
+        <tr><td><kbd>Ctrl</kbd> + <kbd>V</kbd></td><td>Paste copied nodes</td></tr>
+        <tr><td><kbd>Delete</kbd></td><td>Delete selection (nodes or connections)</td></tr>
+        <tr><td><kbd>Esc</kbd></td><td>Deselect all / Cancel operation</td></tr>
+        <tr><td><kbd>Enter</kbd></td><td>Confirm text editing</td></tr>
+    </table>
+
+    <h3>File Operations</h3>
+    <table>
+        <tr><th>Key</th><th>Action</th></tr>
+        <tr><td><kbd>Ctrl</kbd> + <kbd>N</kbd></td><td>New project</td></tr>
+        <tr><td><kbd>Ctrl</kbd> + <kbd>O</kbd></td><td>Open project</td></tr>
+        <tr><td><kbd>Ctrl</kbd> + <kbd>S</kbd></td><td>Save project</td></tr>
+        <tr><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd></td><td>Save as</td></tr>
+        <tr><td><kbd>Ctrl</kbd> + <kbd>E</kbd></td><td>Export Construct 3 format</td></tr>
+        <tr><td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>E</kbd></td><td>Export MiniFlow format</td></tr>
+    </table>
+
+    <h3>Mouse Controls</h3>
+    <ul>
+        <li><strong>LMB Click</strong> — Select node or connection</li>
+        <li><strong>LMB Drag (Node)</strong> — Move selected nodes</li>
+        <li><strong>LMB Drag (Output)</strong> — Create new connection</li>
+        <li><strong>LMB Drag (Canvas)</strong> — Box selection (marquee)</li>
+        <li><strong>Shift + LMB</strong> — Add/remove from selection</li>
+        <li><strong>RMB</strong> — Open context menu (Edit mode only)</li>
+    </ul>
+
+    <h3>Smart Behaviors</h3>
+    <ul>
+        <li><strong>Cascade Creation:</strong> Nodes created via Toolbar are automatically offset in a staircase pattern until camera is moved</li>
+        <li><strong>Group Operations:</strong> Enable/Disable multiple selected nodes at once via Toolbar or Context Menu</li>
+        <li><strong>Auto-Truncation:</strong> Long output values are automatically shortened with "..." to keep the graph readable</li>
+    </ul>
+`,
 
     "import-export": `
         <h2>File Formats</h2>
@@ -165,7 +190,7 @@ const HELP_CONTENTS = {
         <p>If this tool speeds up your workflow, consider supporting future updates.</p>
         
         <p>
-            <a href="#" class="button-donate" style="
+            <a href="https://famstudiogames.itch.io/advanced-flowchart-editor-for-construct-3/donate" class="button-donate" style="
                 display: inline-block;
                 background-color: #ff4757;
                 color: white;
@@ -175,7 +200,7 @@ const HELP_CONTENTS = {
                 font-weight: bold;
                 margin-top: 10px;
                 box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-            ">♥ Donate $5</a>
+            ">♥ Donate $3</a>
         </p>
 
         <h3>Developer Contact</h3>
