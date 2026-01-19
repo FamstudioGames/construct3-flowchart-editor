@@ -1962,19 +1962,60 @@ export class FlowchartEditor {
     }
 
     async projectOpen() {
-        try {
-            const [handle] = await window.showOpenFilePicker({
-                types: [{ description: 'Flowchart Project', accept: { 'application/json': ['.flowproj'] } }]
-            });
-            this.fileHandle = handle;
-            const file = await handle.getFile();
-            const content = JSON.parse(await file.text());
-            
-            if (content.format === "flowproj") {
-                this.load(content.projectData.logic, content.projectData.uistate, file.name);
-            } else {
-                alert("Not a valid .flowproj file");
+        // Проверяем: доступен ли современный API и НЕ находимся ли мы в iframe
+        const isFileSystemSupported = 'showOpenFilePicker' in window && window.self === window.top;
+
+        if (isFileSystemSupported) {
+            // --- СОВРЕМЕННЫЙ МЕТОД (Chrome/Edge на десктопе) ---
+            try {
+                const [handle] = await window.showOpenFilePicker({
+                    types: [{ 
+                        description: 'Flowchart Project', 
+                        accept: { 'application/json': ['.flowproj'] } 
+                    }]
+                });
+                this.fileHandle = handle;
+                const file = await handle.getFile();
+                const content = JSON.parse(await file.text());
+                
+                if (content.format === "flowproj") {
+                    this.load(content.projectData.logic, content.projectData.uistate, file.name);
+                } else {
+                    alert("Not a valid .flowproj file");
+                }
+                return; // Выходим, если всё успешно
+            } catch (err) {
+                if (err.name === 'AbortError') return;
+                console.warn("Modern File API failed, trying fallback...", err);
             }
-        } catch (err) { console.error(err); }
+        }
+
+        // --- КЛАССИЧЕСКИЙ МЕТОД (Fallback для itch.io, Firefox, Safari) ---
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.flowproj,application/json';
+
+        input.onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            try {
+                const text = await file.text();
+                const content = JSON.parse(text);
+                
+                if (content.format === "flowproj") {
+                    // При классическом открытии мы не можем сохранить fileHandle для тихой записи
+                    this.fileHandle = null; 
+                    this.load(content.projectData.logic, content.projectData.uistate, file.name);
+                } else {
+                    alert("Not a valid .flowproj file");
+                }
+            } catch (err) {
+                console.error("Failed to read file:", err);
+                alert("Error reading file content");
+            }
+        };
+
+        input.click(); // Программно вызываем окно выбора файла
     }
 }
